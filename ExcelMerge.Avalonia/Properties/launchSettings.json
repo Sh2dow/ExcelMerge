@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "ExcelMerge.Avalonia": {
+      "commandName": "Project",
+      "commandLineArgs": "merge -b C:\\Users\\xiaoxs\\Desktop\\__tables__.xlsx -l C:\\Users\\xiaoxs\\Desktop\\__tables__LOCAL.xlsx -r C:\\Users\\xiaoxs\\Desktop\\__tables__REMOTE.xlsx"
+    }
+  }
+}

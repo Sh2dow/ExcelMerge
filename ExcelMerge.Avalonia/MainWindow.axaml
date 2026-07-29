@@ -1,0 +1,91 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ExcelMerge.Avalonia.MainWindow"
+        Title="ExcelMerge"
+        Width="1440" Height="900" MinWidth="900" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        DragDrop.AllowDrop="True"
+        DragDrop.DragOver="FileDragOver"
+        DragDrop.Drop="WindowDrop">
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="18">
+    <Grid x:Name="FileInputPanel" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+      <TextBlock Grid.Row="0" Grid.Column="0" Text="BASE" VerticalAlignment="Center" FontWeight="SemiBold"
+                 IsVisible="{Binding IsMergeMode}" />
+      <TextBox x:Name="BasePath" Grid.Row="0" Grid.Column="1" Text="{Binding BasePath, Mode=TwoWay}"
+               PlaceholderText="Base workbook"
+               IsVisible="{Binding IsMergeMode}"
+               DragDrop.AllowDrop="True" DragDrop.DragOver="FileDragOver" DragDrop.Drop="DropBase" />
+      <Button Grid.Row="0" Grid.Column="2" Content="Browse" Click="BrowseBase" IsVisible="{Binding IsMergeMode}" />
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Text="LOCAL" VerticalAlignment="Center" FontWeight="SemiBold" />
+      <TextBox x:Name="LocalPath" Grid.Row="1" Grid.Column="1" Text="{Binding LocalPath, Mode=TwoWay}"
+               PlaceholderText="Drop LOCAL .xlsx, .xls, .csv or .tsv here"
+               DragDrop.AllowDrop="True" DragDrop.DragOver="FileDragOver" DragDrop.Drop="DropLocal" />
+      <Button Grid.Row="1" Grid.Column="2" Content="Browse" Click="BrowseLocal" />
+
+      <TextBlock Grid.Row="2" Grid.Column="0" Text="REMOTE" VerticalAlignment="Center" FontWeight="SemiBold" />
+      <TextBox x:Name="RemotePath" Grid.Row="2" Grid.Column="1" Text="{Binding RemotePath, Mode=TwoWay}"
+               PlaceholderText="Drop REMOTE .xlsx, .xls, .csv or .tsv here"
+               DragDrop.AllowDrop="True" DragDrop.DragOver="FileDragOver" DragDrop.Drop="DropRemote" />
+      <Button Grid.Row="2" Grid.Column="2" Content="Browse" Click="BrowseRemote" />
+    </Grid>
+
+    <Border x:Name="DiffOptionsPanel" Grid.Row="1" Margin="0,16,0,0" Padding="12" CornerRadius="8" Background="#CCCCCC">
+      <Grid ColumnDefinitions="Auto,220,Auto,220,Auto,*" ColumnSpacing="10">
+        <TextBlock Text="Local sheet" VerticalAlignment="Center" />
+        <ComboBox x:Name="LocalSheet" Grid.Column="1" />
+        <TextBlock Grid.Column="2" Text="Remote sheet" VerticalAlignment="Center" />
+        <ComboBox x:Name="RemoteSheet" Grid.Column="3" />
+        <CheckBox x:Name="HideUnchanged" Grid.Column="4" Content="Hide unchanged rows" VerticalAlignment="Center" IsChecked="False" Click="FilterChanged" />
+        <StackPanel Grid.Column="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
+          <TextBlock Text="{Binding ModeLabel}" VerticalAlignment="Center" FontWeight="Bold" />
+          <Button Content="COMPARE" Padding="24,8" Command="{Binding CompareCommand}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,*" Margin="0,12,0,8">
+      <TextBlock x:Name="Summary" Text="Choose or drop LOCAL and REMOTE files to begin." FontSize="14" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+        <Button Content="Previous change" Click="PreviousChange" />
+        <Button Content="Next change" Click="NextChange" />
+      </StackPanel>
+      <TextBlock x:Name="Progress" Grid.Column="2" HorizontalAlignment="Right" />
+    </Grid>
+
+    <Border x:Name="MergeConflictPanel" Grid.Row="3" Margin="0,0,0,8" Padding="12,9"
+            CornerRadius="6" BorderThickness="1" BorderBrush="#7A2E38"
+            IsVisible="{Binding IsMergeMode}">
+      <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="5">
+        <TextBlock x:Name="ConflictSummary" Text="Compare files to detect conflicts." FontWeight="SemiBold" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+          <Button x:Name="PreviousConflictButton" Content="Previous conflict" Click="PreviousConflict" IsEnabled="False" />
+          <Button x:Name="NextConflictButton" Content="Next conflict" Click="NextConflict" IsEnabled="False" />
+          <Button x:Name="UseLocalButton" Content="Use LOCAL" Click="UseLocal" IsEnabled="False" />
+          <Button x:Name="UseRemoteButton" Content="Use REMOTE" Click="UseRemote" IsEnabled="False" />
+          <Button x:Name="KeepBothButton" Content="KEEP BOTH" Click="KeepBoth" IsEnabled="False" />
+          <Button x:Name="SaveResultButton" Content="Save RESULT" Click="SaveResult" IsEnabled="False" />
+        </StackPanel>
+        <TextBlock x:Name="ConflictDetails" Grid.Row="1" Grid.ColumnSpan="2"
+                   Text="BASE is used for conflict detection and shown here only when needed."
+                   TextTrimming="CharacterEllipsis" />
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="4" ColumnDefinitions="*,8,*">
+      <DataGrid x:Name="LocalGrid" Grid.Column="0" AutoGenerateColumns="False" IsReadOnly="True"
+                GridLinesVisibility="All" HeadersVisibility="Column" SelectionMode="Single"
+                ColumnHeaderHeight="32" CanUserResizeColumns="True" CanUserReorderColumns="False" CanUserSortColumns="False"
+                HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                SelectionChanged="GridSelectionChanged" LoadingRow="GridLoadingRow" UnloadingRow="GridUnloadingRow" />
+      <Border Grid.Column="1" Background="#39404A" />
+      <DataGrid x:Name="RemoteGrid" Grid.Column="2" AutoGenerateColumns="False" IsReadOnly="True"
+                GridLinesVisibility="All" HeadersVisibility="Column" SelectionMode="Single"
+                ColumnHeaderHeight="32" CanUserResizeColumns="True" CanUserReorderColumns="False" CanUserSortColumns="False"
+                HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                SelectionChanged="GridSelectionChanged" LoadingRow="GridLoadingRow" UnloadingRow="GridUnloadingRow" />
+    </Grid>
+
+    <TextBlock Grid.Row="5" x:Name="Error" Margin="0,10,0,0" Foreground="#FF8A80" TextWrapping="Wrap" />
+  </Grid>
+</Window>

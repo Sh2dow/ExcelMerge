@@ -3,24 +3,35 @@ using System.Collections.Generic;
 using System.Linq;
 using NPOI.SS.UserModel;
 using NetDiff;
-using SKCore.Collection;
 
 namespace ExcelMerge
 {
     public class ExcelSheet
     {
         public SortedDictionary<int, ExcelRow> Rows { get; private set; }
+        public List<ExcelMergedRegion> MergedRegions { get; private set; }
 
         public ExcelSheet()
         {
             Rows = new SortedDictionary<int, ExcelRow>();
+            MergedRegions = new List<ExcelMergedRegion>();
         }
 
         public static ExcelSheet Create(ISheet srcSheet, ExcelSheetReadConfig config)
         {
             var rows = ExcelReader.Read(srcSheet);
+            var sheet = CreateSheet(rows, config);
+            for (var index = 0; index < srcSheet.NumMergedRegions; index++)
+            {
+                var region = srcSheet.GetMergedRegion(index);
+                sheet.MergedRegions.Add(new ExcelMergedRegion(
+                    region.FirstRow,
+                    region.LastRow,
+                    region.FirstColumn,
+                    region.LastColumn));
+            }
 
-            return CreateSheet(rows, config);
+            return sheet;
         }
 
         public static ExcelSheet CreateFromCsv(string path, ExcelSheetReadConfig config)
@@ -125,12 +136,14 @@ namespace ExcelMerge
             var srcColumns = src.CreateColumns();
             var dstColumns = dst.CreateColumns();
             var columnStatusMap = CreateColumnStatusMap(srcColumns, dstColumns, config);
+            var srcRows = src.Rows.Values.Select(row => new ExcelRow(row.Index, row.Cells)).ToList();
+            var dstRows = dst.Rows.Values.Select(row => new ExcelRow(row.Index, row.Cells)).ToList();
 
             var option = new DiffOption<ExcelRow>();
             option.EqualityComparer =
                 new RowComparer(new HashSet<int>(columnStatusMap.Where(i => i.Value != ExcelColumnStatus.None).Select(i => i.Key)));
 
-            foreach (var row in src.Rows.Values)
+            foreach (var row in srcRows)
             {
                 var shifted = new List<ExcelCell>();
                 var index = 0;
@@ -148,7 +161,7 @@ namespace ExcelMerge
                 row.UpdateCells(shifted);
             }
 
-            foreach (var row in dst.Rows.Values)
+            foreach (var row in dstRows)
             {
                 var shifted = new List<ExcelCell>();
                 var index = 0;
@@ -166,7 +179,7 @@ namespace ExcelMerge
                 row.UpdateCells(shifted);
             }
 
-            var r = DiffUtil.Diff(src.Rows.Values, dst.Rows.Values, option);
+            var r = DiffUtil.Diff(srcRows, dstRows, option);
             r = DiffUtil.Order(r, DiffOrderType.LazyDeleteFirst);
             var resultArray = DiffUtil.OptimizeCaseDeletedFirst(r).ToArray();
             if (resultArray.Length > 10000)
@@ -315,12 +328,12 @@ namespace ExcelMerge
                 }
                 else if (srcCell != null && dstCell == null)
                 {
-                    dstCell = new ExcelCell(string.Empty, srcCell.OriginalColumnIndex, srcCell.OriginalColumnIndex);
+                    dstCell = new ExcelCell(string.Empty, srcCell.OriginalColumnIndex, srcCell.OriginalRowIndex);
                     row.CreateCell(srcCell, dstCell, columnIndex, ExcelCellStatus.Removed);
                 }
                 else if (srcCell == null && dstCell != null)
                 {
-                    srcCell = new ExcelCell(string.Empty, dstCell.OriginalColumnIndex, dstCell.OriginalColumnIndex);
+                    srcCell = new ExcelCell(string.Empty, dstCell.OriginalColumnIndex, dstCell.OriginalRowIndex);
                     row.CreateCell(srcCell, dstCell, columnIndex, ExcelCellStatus.Added);
                 }
                 else

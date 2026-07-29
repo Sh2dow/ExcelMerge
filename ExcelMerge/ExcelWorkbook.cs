@@ -15,38 +15,39 @@ namespace ExcelMerge
 
         public static ExcelWorkbook Create(string path, ExcelSheetReadConfig config)
         {
-            if (Path.GetExtension(path) == ".csv")
+            var extension = Path.GetExtension(path).ToLowerInvariant();
+            if (extension == ".csv")
                 return CreateFromCsv(path, config);
 
-            if (Path.GetExtension(path) == ".tsv")
+            if (extension == ".tsv")
                 return CreateFromTsv(path, config);
 
-            var srcWb = WorkbookFactory.Create(path);
-            var wb = new ExcelWorkbook();
-            for (int i = 0; i < srcWb.NumberOfSheets; i++)
+            using (var srcWb = WorkbookFactory.Create(path))
             {
-                var srcSheet = srcWb.GetSheetAt(i);
-                wb.Sheets.Add(srcSheet.SheetName, ExcelSheet.Create(srcSheet, config));
-            }
+                var wb = new ExcelWorkbook();
+                for (int i = 0; i < srcWb.NumberOfSheets; i++)
+                {
+                    var srcSheet = srcWb.GetSheetAt(i);
+                    wb.Sheets.Add(srcSheet.SheetName, ExcelSheet.Create(srcSheet, config));
+                }
 
-            return wb;
+                return wb;
+            }
         }
 
         public static IEnumerable<string> GetSheetNames(string path)
         {
-            if (Path.GetExtension(path) == ".csv")
+            var extension = Path.GetExtension(path).ToLowerInvariant();
+            if (extension == ".csv" || extension == ".tsv")
+                return new[] { Path.GetFileName(path) };
+
+            using (var workbook = WorkbookFactory.Create(path))
             {
-                yield return System.IO.Path.GetFileName(path);
-            }
-            else if (Path.GetExtension(path) == ".tsv")
-            {
-                yield return System.IO.Path.GetFileName(path);
-            }
-            else
-            {
-                var wb = WorkbookFactory.Create(path);
-                for (int i = 0; i < wb.NumberOfSheets; i++)
-                    yield return wb.GetSheetAt(i).SheetName;
+                var names = new List<string>();
+                for (int i = 0; i < workbook.NumberOfSheets; i++)
+                    names.Add(workbook.GetSheetAt(i).SheetName);
+
+                return names;
             }
         }
 

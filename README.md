@@ -1,165 +1,112 @@
-- [English](https://github.com/skanmera/ExcelMerge/blob/master/README.md)
-- [日本語](https://github.com/skanmera/ExcelMerge/blob/master/README.jp.md)
+# ExcelMerge
 
+ExcelMerge is a visual diff tool for Excel and delimited text files. The desktop UI is being migrated from WPF to [Avalonia](https://avaloniaui.net/) so the merge workflow can be developed on a modern, cross-platform foundation.
 
-![](https://github.com/skanmera/ExcelMerge/blob/media/media/logo.png)
+## Current Features
 
-### GUI Diff Tool for Excel
+- Compare `.xlsx`, `.xls`, `.csv`, and `.tsv` files
+- Select a worksheet independently on each side
+- View cell changes in synchronized side-by-side grids
+- Highlight added, removed, and modified cells
+- Hide unchanged rows
+- Navigate to the previous or next changed row
+- Drop one file onto LOCAL or REMOTE, or drop two files together to open both sides
+- Resolve three-way conflicts with Use LOCAL, Use REMOTE, or KEEP BOTH
+- Generate and save a merged RESULT `.xlsx` or `.xls` workbook
+- Launch as a standalone application or a Git diff tool
 
-![Demo](https://github.com/skanmera/ExcelMerge/blob/media/media/demo.gif)
+Merge mode validates BASE, displays the LOCAL/REMOTE diff, auto-merges non-conflicting cells, and writes resolved cells and merged-cell ranges to a new RESULT workbook. KEEP BOTH duplicates the conflicting row in RESULT.
 
-![](https://github.com/skanmera/ExcelMerge/blob/media/media/cell_diff.png)
+## Requirements
 
-## Description
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- Windows, macOS, or Linux supported by Avalonia
 
-ExcelMerge is a graphical display tool for Excel or CSV Diff.
-The current feature is limited only to the display of Diff, but the goal is to implement the merge feature.
-It can also be used as a diff tool for Git or Mercurial.
+## Build
 
-## System Requirements
-
-- Windows 7 or later
-
-## Supported file types
-
-- .xls
-- .xlsx
-- .csv
-- .tsv
-
-## Installation
-
-Download ExcelMergeSetup.msi from [here](https://github.com/skanmera/ExcelMerge/releases/) and Run.
-
-## Usage
-
-### From shortcut
-
-![](https://github.com/skanmera/ExcelMerge/blob/media/media/shortcut.png)
-
-### From exproler context menu
-
-![](https://github.com/skanmera/ExcelMerge/blob/media/media/context.png)
-
-### From command line
-
-```
-ExcelMerge.GUI diff [Options]
+```powershell
+dotnet build ExcelMerge.sln --configuration Release
 ```
 
-|Option|Description|Type|Default|
-|------|-----------|----|-------|
-|```-s``` ```--src-path```|Source file path.|string|
-|```-d``` ```--dst-path``` |Dest file path.| string
-|```-c``` ```--external-cmd```|It is used to activate other tools for unsupported file types and occured any exception.| string
-|```-i``` ```--immediately-execute-external-cmd```|Execute external cmd without error dialog.| bool | false
-|```-w``` ```--wait-external-cmd```|Wait for the external process to finish.|bool|false
-|```-v``` ```--validate-extension```|Validate extension before open file.|bool|false
-|```-e``` ```--empty-file-name```|Empty file name.|string
-|```-k``` ```--keep-file-history```|Don't add recent files.|bool|false
+## Run
 
-### From Git diff tool
+Open the application and choose two files:
 
-.gitconfig
+```powershell
+dotnet run --project ExcelMerge.Avalonia
 ```
+
+Open a comparison directly:
+
+```powershell
+dotnet run --project ExcelMerge.Avalonia -- diff -l local.xlsx -r remote.xlsx
+```
+
+Start with all three Git merge inputs:
+
+```powershell
+dotnet run --project ExcelMerge.Avalonia -- merge -b base.xlsx -l local.xlsx -r remote.xlsx
+```
+
+Long options and positional paths are also accepted:
+
+```powershell
+dotnet run --project ExcelMerge.Avalonia -- merge --base-path base.xlsx --local-path local.xlsx --remote-path remote.xlsx
+dotnet run --project ExcelMerge.Avalonia -- merge base.xlsx local.xlsx remote.xlsx
+```
+
+The previous diff aliases `-s/--src-path` and `-d/--dst-path` remain supported.
+
+## Git Difftool
+
+Build or publish the Avalonia application, then register its executable in `.gitconfig`:
+
+```ini
 [diff]
-tool = ExcelMerge
+    tool = ExcelMerge
 
 [difftool "ExcelMerge"]
-cmd = \"C:/Program Files (x86)/ExcelMerge/ExcelMerge.GUI.exe\" diff -s \"$LOCAL\" -d \"$REMOTE\" -c WinMerge -i -w -v -k 
-
-[alias]
-windiff = difftool -g -y -t ExcelMerge
+    cmd = C:/path/to/ExcelMerge.Avalonia.exe diff -s "$LOCAL" -d "$REMOTE"
 ```
 
-### From Mercurial diff tool
+Run it with:
 
-mercurial.ini
-```
-[merge-tools]
-excelmerge.executable = C:\Program Files (x86)\ExcelMerge\ExcelMerge.GUI.exe
-excelmerge.diffargs = diff -s $parent1 -d $child -c WinMerge -i -w -v -e empty -k
-
-[tortoisehg]
-vdiff = excelmerge
+```powershell
+git difftool -t ExcelMerge
 ```
 
-## Register External Command
-Register the external command specified by the command line argument --external-cmd.
+This is diff-tool integration only. RESULT can be saved from the GUI, but the executable should not be registered as a Git merge driver until a non-interactive output-path contract and merge exit codes are implemented.
 
-![](https://github.com/skanmera/ExcelMerge/blob/media/media/ext_cmd_win.png)
+## Project Layout
 
-### Available Variables
-|Value|Description|
-|------|----------|
-|```${SRC}```|Source file path|
-|```${DST}```|Dest file path|  
-  
-  
-Can also be executed from within the tool.
+- `ExcelMerge.Avalonia`: current Avalonia desktop UI
+- `ExcelMerge`: workbook reader and worksheet diff model
+- `NetDiff`: sequence diff engine
+- `ExcelMerge.Tests`: workbook and worksheet regression tests
+- `NetDiff/NetDiff.Test`: diff engine regression tests
 
-![](https://github.com/skanmera/ExcelMerge/blob/media/media/ext_cmd.png)
+The legacy `ExcelMerge.GUI`, `FastWpfGrid`, `ExcelMerge.Installer`, and `ExcelMerge.ShellExtension` directories remain as migration references but are excluded from the default solution.
 
-## File Settings
+## License
 
-For each file you can specify a line header or a column header.
+MIT License
 
-![](https://github.com/skanmera/ExcelMerge/blob/media/media/file_settings.png)
+Copyright (c) 2017 skanmera
 
-## Color Settings
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-You can customize background colors.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-![](https://github.com/skanmera/ExcelMerge/blob/media/media/settings.png)
-
-
-## Shortcut Keys
-
-|Shortcut Key|Description|
-|---|-----------|
-|Ctrl + →|Next modified cell|
-|Ctrl + ←|Previous modified cell|
-|Ctrl + ↓|Next modified row|
-|Ctrl + ↑|Previous modified row|
-|Ctrl + K|Next added row|
-|Ctrl + I|Previous added row|
-|Ctrl + L|Next removed row|
-|Ctrl + O|Previous removed row|
-|Ctrl + F|Search cell|
-|F9|Next match cell|
-|F8|Previous match cell|
-|Ctrl + C|Copy selected cells as TSV|
-|Ctrl + Shift + C|Copy selected cells as CSV|
-|Ctrl + D|Show(Hide) console|
-|Ctrl + B|Output selected cells diff as log|
-
-
-## Output diff as log
-
-By selecting Ctrl + D or "Output log" from the context menu, you can output the change as a log.
-The format can be changed from "differential extraction setting".
-
-![](https://github.com/skanmera/ExcelMerge/blob/media/media/log.png)
-
-
-## Known problems
-
-- <h4>If there are column deletions or additions, they may not be displayed at the expected position.</h4>
-If the currently displayed header is not what you expect, you may resolve it by specifying the appropriate header and extract diff.
-Follow these steps.
-1. Select appropriate header cell.
-2. Right click to display the context menu.
-3. Select "Extract diff with this row as header"
-
-
-## LICENSE
-
-#### MIT Licence
-
-Copyright (c)2017 skanmera
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
