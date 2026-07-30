@@ -1,4 +1,10 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NPOI.HSSF.UserModel;
+using NPOI.SS.UserModel;
+using NPOI.SS.Util;
+using NPOI.XSSF.UserModel;
+using System.IO.Compression;
+using System.Xml.Linq;
 
 namespace ExcelMerge.Tests;
 
@@ -196,6 +202,309 @@ public sealed class WorkbookMergeServiceTests
         }
     }
 
+    [TestMethod]
+    public void SavePreservesLocalFormattingWhileApplyingRemoteFormula()
+    {
+        var basePath = TempPath();
+        var localPath = TempPath();
+        var remotePath = TempPath();
+        var outputPath = TempPath();
+        try
+        {
+            WriteFormulaWorkbook(basePath, "1+1", IndexedColors.Grey25Percent.Index);
+            WriteFormulaWorkbook(localPath, "1+2", IndexedColors.LightCornflowerBlue.Index);
+            WriteFormulaWorkbook(remotePath, "1+3", IndexedColors.LightGreen.Index);
+            var config = new ExcelSheetReadConfig();
+
+            new WorkbookMergeService().Save(
+                ExcelWorkbook.Create(basePath, config),
+                ExcelWorkbook.Create(localPath, config),
+                ExcelWorkbook.Create(remotePath, config),
+                new Dictionary<MergeRowKey, MergeResolution>(),
+                new Dictionary<MergeCellKey, MergeCellResolution>
+                {
+                    [new MergeCellKey("Sheet1", 0, 0)] = new(MergeResolution.Remote),
+                },
+                localPath,
+                remotePath,
+                outputPath);
+
+            using var result = WorkbookFactory.Create(outputPath);
+            var sheet = result.GetSheet("Sheet1");
+            var cell = sheet.GetRow(0).GetCell(0);
+            Assert.AreEqual(CellType.Formula, cell.CellType);
+            Assert.AreEqual("1+3", cell.CellFormula);
+            Assert.AreEqual(IndexedColors.LightCornflowerBlue.Index, cell.CellStyle.FillForegroundColor);
+            Assert.AreEqual(FillPattern.SolidForeground, cell.CellStyle.FillPattern);
+            Assert.AreEqual(BorderStyle.Thick, cell.CellStyle.BorderBottom);
+            Assert.IsTrue(result.GetFontAt(cell.CellStyle.FontIndex).IsBold);
+            Assert.AreEqual(IndexedColors.DarkBlue.Index, result.GetFontAt(cell.CellStyle.FontIndex).Color);
+            Assert.AreEqual(32f, sheet.GetRow(0).HeightInPoints);
+            Assert.AreEqual(6400, sheet.GetColumnWidth(0));
+            Assert.IsTrue(sheet.PaneInformation.IsFreezePane());
+            Assert.AreEqual(1, sheet.NumMergedRegions);
+            Assert.AreEqual("A2:B2", sheet.GetMergedRegion(0).FormatAsString());
+        }
+        finally
+        {
+            Delete(basePath, localPath, remotePath, outputPath);
+        }
+    }
+
+    [TestMethod]
+    public void SavePreservesFormattingWithExtensionlessGitInputs()
+    {
+        var basePath = TempPath(string.Empty);
+        var localPath = TempPath(string.Empty);
+        var remotePath = TempPath(string.Empty);
+        var outputPath = TempPath();
+        try
+        {
+            WriteFormulaWorkbook(basePath, "1+1", IndexedColors.Grey25Percent.Index);
+            WriteFormulaWorkbook(localPath, "1+2", IndexedColors.LightCornflowerBlue.Index);
+            WriteFormulaWorkbook(remotePath, "1+3", IndexedColors.LightGreen.Index);
+            var config = new ExcelSheetReadConfig();
+
+            new WorkbookMergeService().Save(
+                ExcelWorkbook.Create(basePath, config),
+                ExcelWorkbook.Create(localPath, config),
+                ExcelWorkbook.Create(remotePath, config),
+                new Dictionary<MergeRowKey, MergeResolution>(),
+                new Dictionary<MergeCellKey, MergeCellResolution>
+                {
+                    [new MergeCellKey("Sheet1", 0, 0)] = new(MergeResolution.Remote),
+                },
+                localPath,
+                remotePath,
+                outputPath);
+
+            using var result = WorkbookFactory.Create(outputPath);
+            var cell = result.GetSheet("Sheet1").GetRow(0).GetCell(0);
+            Assert.AreEqual("1+3", cell.CellFormula);
+            Assert.AreEqual(IndexedColors.LightCornflowerBlue.Index, cell.CellStyle.FillForegroundColor);
+            Assert.AreEqual(BorderStyle.Thick, cell.CellStyle.BorderBottom);
+            Assert.AreEqual(6400, result.GetSheet("Sheet1").GetColumnWidth(0));
+        }
+        finally
+        {
+            Delete(basePath, localPath, remotePath, outputPath);
+        }
+    }
+
+    [TestMethod]
+    public void SaveCopiesFormattingForRemoteOnlySheet()
+    {
+        var basePath = TempPath();
+        var localPath = TempPath();
+        var remotePath = TempPath();
+        var outputPath = TempPath();
+        try
+        {
+            WriteWorkbook(basePath, includeRemoteSheet: false);
+            WriteWorkbook(localPath, includeRemoteSheet: false);
+            WriteWorkbook(remotePath, includeRemoteSheet: true);
+            var config = new ExcelSheetReadConfig();
+
+            new WorkbookMergeService().Save(
+                ExcelWorkbook.Create(basePath, config),
+                ExcelWorkbook.Create(localPath, config),
+                ExcelWorkbook.Create(remotePath, config),
+                new Dictionary<MergeRowKey, MergeResolution>(),
+                new Dictionary<MergeCellKey, MergeCellResolution>(),
+                localPath,
+                remotePath,
+                outputPath);
+
+            using var result = WorkbookFactory.Create(outputPath);
+            Assert.AreEqual(2, result.NumberOfSheets);
+            var sheet = result.GetSheet("RemoteOnly");
+            var cell = sheet.GetRow(0).GetCell(0);
+            Assert.AreEqual(CellType.Numeric, cell.CellType);
+            Assert.AreEqual(42.5, cell.NumericCellValue);
+            Assert.AreEqual(IndexedColors.LightOrange.Index, cell.CellStyle.FillForegroundColor);
+            Assert.AreEqual(FillPattern.SolidForeground, cell.CellStyle.FillPattern);
+            Assert.IsTrue(result.GetFontAt(cell.CellStyle.FontIndex).IsBold);
+            Assert.AreEqual(28f, sheet.GetRow(0).HeightInPoints);
+            Assert.AreEqual(7200, sheet.GetColumnWidth(0));
+            Assert.AreEqual(1, sheet.NumMergedRegions);
+            Assert.AreEqual("A2:B2", sheet.GetMergedRegion(0).FormatAsString());
+            Assert.AreEqual(SheetVisibility.VeryHidden, result.GetSheetVisibility(result.GetSheetIndex(sheet)));
+        }
+        finally
+        {
+            Delete(basePath, localPath, remotePath, outputPath);
+        }
+    }
+
+    [TestMethod]
+    public void SaveReplacesLocalFormulaWithRemoteLiteralAndKeepsStyle()
+    {
+        var basePath = TempPath();
+        var localPath = TempPath();
+        var remotePath = TempPath();
+        var outputPath = TempPath();
+        try
+        {
+            WriteNumericWorkbook(basePath, 1, IndexedColors.Grey25Percent.Index);
+            WriteFormulaWorkbook(localPath, "1+1", IndexedColors.LightCornflowerBlue.Index);
+            WriteNumericWorkbook(remotePath, 3, IndexedColors.LightGreen.Index);
+            var config = new ExcelSheetReadConfig();
+
+            new WorkbookMergeService().Save(
+                ExcelWorkbook.Create(basePath, config),
+                ExcelWorkbook.Create(localPath, config),
+                ExcelWorkbook.Create(remotePath, config),
+                new Dictionary<MergeRowKey, MergeResolution>(),
+                new Dictionary<MergeCellKey, MergeCellResolution>
+                {
+                    [new MergeCellKey("Sheet1", 0, 0)] = new(MergeResolution.Remote),
+                },
+                localPath,
+                remotePath,
+                outputPath);
+
+            using var result = WorkbookFactory.Create(outputPath);
+            var cell = result.GetSheet("Sheet1").GetRow(0).GetCell(0);
+            Assert.AreEqual(CellType.Numeric, cell.CellType);
+            Assert.AreEqual(3d, cell.NumericCellValue);
+            Assert.AreEqual(IndexedColors.LightCornflowerBlue.Index, cell.CellStyle.FillForegroundColor);
+        }
+        finally
+        {
+            Delete(basePath, localPath, remotePath, outputPath);
+        }
+    }
+
+    [TestMethod]
+    public void SaveKeepBothPreservesLocalAndRemoteRowStyles()
+    {
+        var basePath = TempPath();
+        var localPath = TempPath();
+        var remotePath = TempPath();
+        var outputPath = TempPath();
+        try
+        {
+            WriteFormulaWorkbook(basePath, "1+1", IndexedColors.Grey25Percent.Index);
+            WriteFormulaWorkbook(localPath, "1+2", IndexedColors.LightCornflowerBlue.Index);
+            WriteFormulaWorkbook(remotePath, "1+3", IndexedColors.LightGreen.Index);
+            var config = new ExcelSheetReadConfig();
+
+            new WorkbookMergeService().Save(
+                ExcelWorkbook.Create(basePath, config),
+                ExcelWorkbook.Create(localPath, config),
+                ExcelWorkbook.Create(remotePath, config),
+                new Dictionary<MergeRowKey, MergeResolution>
+                {
+                    [new MergeRowKey("Sheet1", 0)] = MergeResolution.Both,
+                },
+                new Dictionary<MergeCellKey, MergeCellResolution>(),
+                localPath,
+                remotePath,
+                outputPath);
+
+            using var result = WorkbookFactory.Create(outputPath);
+            var sheet = result.GetSheet("Sheet1");
+            Assert.AreEqual("1+2", sheet.GetRow(0).GetCell(0).CellFormula);
+            Assert.AreEqual("1+3", sheet.GetRow(1).GetCell(0).CellFormula);
+            Assert.AreEqual(
+                IndexedColors.LightCornflowerBlue.Index,
+                sheet.GetRow(0).GetCell(0).CellStyle.FillForegroundColor);
+            Assert.AreEqual(
+                IndexedColors.LightGreen.Index,
+                sheet.GetRow(1).GetCell(0).CellStyle.FillForegroundColor);
+            Assert.AreEqual(32f, sheet.GetRow(1).HeightInPoints);
+            Assert.AreEqual("A3:B3", sheet.GetMergedRegion(0).FormatAsString());
+        }
+        finally
+        {
+            Delete(basePath, localPath, remotePath, outputPath);
+        }
+    }
+
+    [TestMethod]
+    public void SavePreservesLocalFormattingInLegacyXls()
+    {
+        var basePath = TempPath(".xls");
+        var localPath = TempPath(".xls");
+        var remotePath = TempPath(".xls");
+        var outputPath = TempPath(".xls");
+        try
+        {
+            WriteLegacyWorkbook(basePath, "base", IndexedColors.Grey25Percent.Index);
+            WriteLegacyWorkbook(localPath, "local", IndexedColors.LightCornflowerBlue.Index);
+            WriteLegacyWorkbook(remotePath, "remote", IndexedColors.LightGreen.Index);
+            var config = new ExcelSheetReadConfig();
+
+            new WorkbookMergeService().Save(
+                ExcelWorkbook.Create(basePath, config),
+                ExcelWorkbook.Create(localPath, config),
+                ExcelWorkbook.Create(remotePath, config),
+                new Dictionary<MergeRowKey, MergeResolution>(),
+                new Dictionary<MergeCellKey, MergeCellResolution>
+                {
+                    [new MergeCellKey("Sheet1", 0, 0)] = new(MergeResolution.Remote),
+                },
+                localPath,
+                remotePath,
+                outputPath);
+
+            using var result = WorkbookFactory.Create(outputPath);
+            var cell = result.GetSheet("Sheet1").GetRow(0).GetCell(0);
+            Assert.AreEqual("remote", cell.StringCellValue);
+            Assert.AreEqual(IndexedColors.LightCornflowerBlue.Index, cell.CellStyle.FillForegroundColor);
+            Assert.AreEqual(BorderStyle.Thick, cell.CellStyle.BorderBottom);
+        }
+        finally
+        {
+            Delete(basePath, localPath, remotePath, outputPath);
+        }
+    }
+
+    [TestMethod]
+    public void SavePreservesUntouchedInlineStringsInPatchedXlsx()
+    {
+        var basePath = TempPath();
+        var localPath = TempPath();
+        var remotePath = TempPath();
+        var outputPath = TempPath();
+        try
+        {
+            WriteInlineStringWorkbook(basePath, "base");
+            WriteInlineStringWorkbook(localPath, "base");
+            WriteInlineStringWorkbook(remotePath, "remote");
+            var localStyles = ReadPackageEntry(localPath, "xl/styles.xml");
+            var config = new ExcelSheetReadConfig();
+
+            new WorkbookMergeService().Save(
+                ExcelWorkbook.Create(basePath, config),
+                ExcelWorkbook.Create(localPath, config),
+                ExcelWorkbook.Create(remotePath, config),
+                new Dictionary<MergeRowKey, MergeResolution>(),
+                new Dictionary<MergeCellKey, MergeCellResolution>(),
+                localPath,
+                remotePath,
+                outputPath);
+
+            using var result = WorkbookFactory.Create(outputPath);
+            var sheet = result.GetSheet("Sheet1");
+            Assert.AreEqual("remote", sheet.GetRow(0).GetCell(0).StringCellValue);
+            Assert.AreEqual("untouched inline text", sheet.GetRow(1).GetCell(0).StringCellValue);
+            CollectionAssert.AreEqual(localStyles, ReadPackageEntry(outputPath, "xl/styles.xml"));
+            XNamespace spreadsheet = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            XDocument worksheet;
+            using (var input = new MemoryStream(ReadPackageEntry(outputPath, "xl/worksheets/sheet1.xml")))
+                worksheet = XDocument.Load(input);
+            var untouched = worksheet.Descendants(spreadsheet + "c")
+                .Single(cell => (string)cell.Attribute("r")! == "A2");
+            Assert.AreEqual("inlineStr", (string?)untouched.Attribute("t"));
+            Assert.AreEqual("untouched inline text", untouched.Descendants(spreadsheet + "t").Single().Value);
+        }
+        finally
+        {
+            Delete(basePath, localPath, remotePath, outputPath);
+        }
+    }
+
     private static ExcelWorkbook Workbook(params string[] values)
     {
         var workbook = new ExcelWorkbook();
@@ -205,6 +514,177 @@ public sealed class WorkbookMergeServiceTests
         return workbook;
     }
 
-    private static string TempPath() =>
-        Path.Combine(Path.GetTempPath(), $"excelmerge-result-{Guid.NewGuid():N}.xlsx");
+    private static void WriteFormulaWorkbook(string path, string formula, short fillColor)
+    {
+        using var workbook = new XSSFWorkbook();
+        var sheet = workbook.CreateSheet("Sheet1");
+        var row = sheet.CreateRow(0);
+        row.HeightInPoints = 32;
+        var cell = row.CreateCell(0);
+        cell.SetCellFormula(formula);
+        var style = workbook.CreateCellStyle();
+        style.FillForegroundColor = fillColor;
+        style.FillPattern = FillPattern.SolidForeground;
+        style.BorderBottom = BorderStyle.Thick;
+        style.DataFormat = workbook.CreateDataFormat().GetFormat("0.00");
+        var font = workbook.CreateFont();
+        font.IsBold = true;
+        font.Color = IndexedColors.DarkBlue.Index;
+        style.SetFont(font);
+        cell.CellStyle = style;
+        var titleRow = sheet.CreateRow(1);
+        titleRow.CreateCell(0).SetCellValue("Merged title");
+        sheet.AddMergedRegion(new CellRangeAddress(1, 1, 0, 1));
+        sheet.SetColumnWidth(0, 6400);
+        sheet.CreateFreezePane(1, 1);
+        workbook.GetCreationHelper().CreateFormulaEvaluator().EvaluateFormulaCell(cell);
+        using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        workbook.Write(output);
+    }
+
+    private static void WriteNumericWorkbook(string path, double value, short fillColor)
+    {
+        using var workbook = new XSSFWorkbook();
+        var sheet = workbook.CreateSheet("Sheet1");
+        var row = sheet.CreateRow(0);
+        row.HeightInPoints = 32;
+        var cell = row.CreateCell(0);
+        cell.SetCellValue(value);
+        var style = workbook.CreateCellStyle();
+        style.FillForegroundColor = fillColor;
+        style.FillPattern = FillPattern.SolidForeground;
+        style.BorderBottom = BorderStyle.Thick;
+        style.DataFormat = workbook.CreateDataFormat().GetFormat("0.00");
+        var font = workbook.CreateFont();
+        font.IsBold = true;
+        font.Color = IndexedColors.DarkBlue.Index;
+        style.SetFont(font);
+        cell.CellStyle = style;
+        sheet.CreateRow(1).CreateCell(0).SetCellValue("Merged title");
+        sheet.AddMergedRegion(new CellRangeAddress(1, 1, 0, 1));
+        sheet.SetColumnWidth(0, 6400);
+        sheet.CreateFreezePane(1, 1);
+        using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        workbook.Write(output);
+    }
+
+    private static void WriteWorkbook(string path, bool includeRemoteSheet)
+    {
+        using var workbook = new XSSFWorkbook();
+        workbook.CreateSheet("Existing").CreateRow(0).CreateCell(0).SetCellValue("unchanged");
+        if (includeRemoteSheet)
+        {
+            var sheet = workbook.CreateSheet("RemoteOnly");
+            workbook.SetSheetVisibility(workbook.GetSheetIndex(sheet), SheetVisibility.VeryHidden);
+            var row = sheet.CreateRow(0);
+            row.HeightInPoints = 28;
+            var cell = row.CreateCell(0);
+            cell.SetCellValue(42.5);
+            var style = workbook.CreateCellStyle();
+            style.FillForegroundColor = IndexedColors.LightOrange.Index;
+            style.FillPattern = FillPattern.SolidForeground;
+            var font = workbook.CreateFont();
+            font.IsBold = true;
+            style.SetFont(font);
+            cell.CellStyle = style;
+            sheet.CreateRow(1).CreateCell(0).SetCellValue("Remote title");
+            sheet.AddMergedRegion(new CellRangeAddress(1, 1, 0, 1));
+            sheet.SetColumnWidth(0, 7200);
+        }
+
+        using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        workbook.Write(output);
+    }
+
+    private static void WriteLegacyWorkbook(string path, string value, short fillColor)
+    {
+        using var workbook = new HSSFWorkbook();
+        var sheet = workbook.CreateSheet("Sheet1");
+        var cell = sheet.CreateRow(0).CreateCell(0);
+        cell.SetCellValue(value);
+        var style = workbook.CreateCellStyle();
+        style.FillForegroundColor = fillColor;
+        style.FillPattern = FillPattern.SolidForeground;
+        style.BorderBottom = BorderStyle.Thick;
+        cell.CellStyle = style;
+        using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        workbook.Write(output);
+    }
+
+    private static void WriteInlineStringWorkbook(string path, string firstValue)
+    {
+        using (var workbook = new XSSFWorkbook())
+        {
+            var sheet = workbook.CreateSheet("Sheet1");
+            sheet.CreateRow(0).CreateCell(0).SetCellValue(firstValue);
+            sheet.CreateRow(1).CreateCell(0).SetCellValue("untouched inline text");
+            using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+            workbook.Write(output);
+        }
+
+        var entries = new List<(string Name, DateTimeOffset Time, int Attributes, byte[] Content)>();
+        using (var archive = ZipFile.OpenRead(path))
+        {
+            foreach (var entry in archive.Entries)
+            {
+                using var input = entry.Open();
+                using var content = new MemoryStream();
+                input.CopyTo(content);
+                entries.Add((entry.FullName, entry.LastWriteTime, entry.ExternalAttributes, content.ToArray()));
+            }
+        }
+
+        XNamespace spreadsheet = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        var sheetEntry = entries.Single(entry => entry.Name == "xl/worksheets/sheet1.xml");
+        XDocument document;
+        using (var input = new MemoryStream(sheetEntry.Content))
+            document = XDocument.Load(input);
+        foreach (var cell in document.Descendants(spreadsheet + "c"))
+        {
+            var address = (string)cell.Attribute("r")!;
+            var value = address == "A1" ? firstValue : "untouched inline text";
+            cell.SetAttributeValue("t", "inlineStr");
+            cell.ReplaceNodes(new XElement(
+                spreadsheet + "is",
+                new XElement(spreadsheet + "t", value)));
+        }
+        using (var content = new MemoryStream())
+        {
+            document.Save(content);
+            var index = entries.FindIndex(entry => entry.Name == sheetEntry.Name);
+            entries[index] = (sheetEntry.Name, sheetEntry.Time, sheetEntry.Attributes, content.ToArray());
+        }
+
+        var temporaryPath = path + ".tmp";
+        using (var archive = ZipFile.Open(temporaryPath, ZipArchiveMode.Create))
+        {
+            foreach (var source in entries)
+            {
+                var entry = archive.CreateEntry(source.Name, CompressionLevel.Optimal);
+                entry.LastWriteTime = source.Time;
+                entry.ExternalAttributes = source.Attributes;
+                using var output = entry.Open();
+                output.Write(source.Content);
+            }
+        }
+        File.Move(temporaryPath, path, true);
+    }
+
+    private static byte[] ReadPackageEntry(string path, string entryName)
+    {
+        using var archive = ZipFile.OpenRead(path);
+        using var input = archive.GetEntry(entryName)!.Open();
+        using var content = new MemoryStream();
+        input.CopyTo(content);
+        return content.ToArray();
+    }
+
+    private static void Delete(params string[] paths)
+    {
+        foreach (var path in paths)
+            File.Delete(path);
+    }
+
+    private static string TempPath(string extension = ".xlsx") =>
+        Path.Combine(Path.GetTempPath(), $"excelmerge-result-{Guid.NewGuid():N}{extension}");
 }

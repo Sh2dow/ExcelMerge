@@ -13,7 +13,8 @@ public sealed class DiffRow
     public int ConflictRowIndex => ConflictCells.FirstOrDefault()?.OriginalRowIndex ?? Index - 1;
     public bool IsResolved => ConflictCells.All(cell => cell.Resolution != MergeResolution.Unresolved);
     public string DisplayIndex => ConflictCells.Any(cell => cell.Resolution == MergeResolution.Both) ? $"{Index} x2" : Index.ToString();
-    public double RowHeight { get; set; } = 32;
+    public double RowHeight { get; private set; } = 28;
+    public bool HasCustomRowHeight { get; private set; }
 
     public DiffRow(ExcelRowDiff row, IReadOnlyDictionary<(int Row, int Column), string>? baseValues = null)
     {
@@ -33,6 +34,18 @@ public sealed class DiffRow
             foreach (var cell in ConflictCells)
                 cell.Resolve(resolution);
         }
+    }
+
+    public void SetDefaultRowHeight(double height)
+    {
+        if (!HasCustomRowHeight)
+            RowHeight = height;
+    }
+
+    public void SetCustomRowHeight(double height)
+    {
+        RowHeight = height;
+        HasCustomRowHeight = true;
     }
 }
 

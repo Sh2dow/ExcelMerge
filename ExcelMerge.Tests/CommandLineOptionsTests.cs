@@ -121,7 +121,7 @@ public sealed class CommandLineOptionsTests
     }
 
     [TestMethod]
-    public void MergeDriverReturnsFailureUntilResultIsWritten()
+    public void MergeDriverReturnsFailureUntilUserConfirmsResult()
     {
         var options = CommandLineOptions.Parse(new[]
         {

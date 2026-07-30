@@ -24,6 +24,11 @@ internal sealed class SplitScrollSynchronizer : IDisposable
     private bool _applyingHorizontal;
     private bool _disposed;
 
+    public event EventHandler? ViewportChanged;
+
+    public NormalizedViewport VerticalViewport => GetViewport(_localVertical ?? _remoteVertical);
+    public NormalizedViewport HorizontalViewport => GetViewport(_localHorizontal ?? _remoteHorizontal);
+
     public SplitScrollSynchronizer(DataGrid localGrid, DataGrid remoteGrid)
     {
         _localGrid = localGrid;
@@ -89,17 +94,37 @@ internal sealed class SplitScrollSynchronizer : IDisposable
             _remoteHorizontal.ValueChanged -= RemoteHorizontalValueChanged;
     }
 
-    private void LocalVerticalValueChanged(object? sender, RangeBaseValueChangedEventArgs e) =>
+    private void LocalVerticalValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_applyingVertical)
+            return;
         SynchronizeVertical(_localVertical, _remoteVertical);
+        ViewportChanged?.Invoke(this, EventArgs.Empty);
+    }
 
-    private void RemoteVerticalValueChanged(object? sender, RangeBaseValueChangedEventArgs e) =>
+    private void RemoteVerticalValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_applyingVertical)
+            return;
         SynchronizeVertical(_remoteVertical, _localVertical);
+        ViewportChanged?.Invoke(this, EventArgs.Empty);
+    }
 
-    private void LocalHorizontalValueChanged(object? sender, RangeBaseValueChangedEventArgs e) =>
+    private void LocalHorizontalValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_applyingHorizontal)
+            return;
         SynchronizeHorizontal(_localHorizontal, _remoteHorizontal);
+        ViewportChanged?.Invoke(this, EventArgs.Empty);
+    }
 
-    private void RemoteHorizontalValueChanged(object? sender, RangeBaseValueChangedEventArgs e) =>
+    private void RemoteHorizontalValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_applyingHorizontal)
+            return;
         SynchronizeHorizontal(_remoteHorizontal, _localHorizontal);
+        ViewportChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     private void LocalVerticalScroll(object? sender, ScrollEventArgs e) => TakeVerticalLeadership(_localVertical);
     private void RemoteVerticalScroll(object? sender, ScrollEventArgs e) => TakeVerticalLeadership(_remoteVertical);
@@ -223,6 +248,58 @@ internal sealed class SplitScrollSynchronizer : IDisposable
         }
     }
 
+    public void ScrollTo(double horizontalPosition, double verticalPosition)
+    {
+        if (_disposed)
+            return;
+        if (_localVertical == null || _localHorizontal == null)
+            CaptureScrollBars();
+
+        if (_localVertical != null)
+            MoveScrollBar(_localVertical, ContentPositionToOffset(
+                verticalPosition,
+                _localVertical.Minimum,
+                _localVertical.Maximum,
+                _localVertical.ViewportSize), true);
+        if (_localHorizontal != null)
+            MoveScrollBar(_localHorizontal, ContentPositionToOffset(
+                horizontalPosition,
+                _localHorizontal.Minimum,
+                _localHorizontal.Maximum,
+                _localHorizontal.ViewportSize), false);
+    }
+
+    internal static double ContentPositionToOffset(
+        double position,
+        double minimum,
+        double maximum,
+        double viewportSize)
+    {
+        var range = Math.Max(0, maximum - minimum);
+        var viewport = double.IsFinite(viewportSize) && viewportSize > 0 ? viewportSize : 0;
+        var extent = range + viewport;
+        var desired = minimum + Math.Clamp(position, 0, 1) * extent - viewport / 2;
+        return Math.Clamp(desired, minimum, maximum);
+    }
+
+    private static NormalizedViewport GetViewport(ScrollBar? scrollBar)
+    {
+        if (scrollBar == null)
+            return new NormalizedViewport(0, 1);
+
+        var range = Math.Max(0, scrollBar.Maximum - scrollBar.Minimum);
+        var viewport = double.IsFinite(scrollBar.ViewportSize) && scrollBar.ViewportSize > 0
+            ? scrollBar.ViewportSize
+            : 0;
+        var extent = range + viewport;
+        if (extent <= Epsilon)
+            return new NormalizedViewport(0, 1);
+
+        var start = Math.Clamp((scrollBar.Value - scrollBar.Minimum) / extent, 0, 1);
+        var end = Math.Clamp((scrollBar.Value - scrollBar.Minimum + viewport) / extent, start, 1);
+        return new NormalizedViewport(start, end);
+    }
+
     internal static double MapAlignedOffset(
         double sourceValue,
         double sourceMinimum,
@@ -260,3 +337,5 @@ internal sealed class SplitScrollSynchronizer : IDisposable
         _remoteHorizontal = null;
     }
 }
+
+internal readonly record struct NormalizedViewport(double Start, double End);

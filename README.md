@@ -12,10 +12,14 @@ ExcelMerge is a visual diff tool for Excel and delimited text files. The desktop
 - Navigate to the previous or next changed row
 - Drop one file onto LOCAL or REMOTE, or drop two files together to open both sides
 - Resolve three-way conflicts with Use LOCAL, Use REMOTE, or KEEP BOTH
+- Track unresolved conflicts across worksheets and jump directly to each sheet
+- Navigate conflict cells precisely across worksheets and track the remaining unresolved count
+- Adjust table font size and collapse the file-input drawer to maximize the comparison area
 - Generate and save a merged RESULT `.xlsx` or `.xls` workbook
+- Preserve LOCAL cell styles, formulas, row heights, column widths, and unchanged workbook content when saving a merge
 - Launch as a standalone application or a Git diff tool
 
-Merge mode validates BASE, displays the LOCAL/REMOTE diff, auto-merges non-conflicting cells, and writes resolved cells and merged-cell ranges to a new RESULT workbook. KEEP BOTH duplicates the conflicting row in RESULT.
+Merge mode validates BASE, displays the LOCAL/REMOTE diff, auto-merges non-conflicting cells, and applies resolved values to a copy of the LOCAL workbook instead of rebuilding every sheet. Existing `.xlsx` sheets are patched at the OOXML cell level so untouched inline strings and package parts remain intact. REMOTE-only sheets copy their cell styles and basic sheet layout into RESULT. KEEP BOTH duplicates the conflicting row in RESULT.
 
 ## Requirements
 
@@ -99,7 +103,7 @@ git config merge.excelmerge.name "Excel workbook merge"
 git config merge.excelmerge.driver '"C:/Tools/ExcelMerge/ExcelMerge.Avalonia.exe" merge-driver %O %A %B %L %P'
 ```
 
-Git supplies BASE as `%O`, the current version and required output as `%A`, the incoming version as `%B`, the conflict marker size as `%L`, and the repository path as `%P`. ExcelMerge writes a successful result over `%A`. If there are no cell conflicts, it writes the result and exits automatically; otherwise, resolve the conflicts in the UI and select **Complete Git merge**.
+Git supplies BASE as `%O`, the current version and required output as `%A`, the incoming version as `%B`, the conflict marker size as `%L`, and the repository path as `%P`. ExcelMerge writes a successful result over `%A`. If there are no cell conflicts, review the automatic merge preview and select **Auto Merge**. Otherwise, resolve the conflicts in the UI and select **Complete Git merge**.
 
 Merge-driver exit codes are:
 

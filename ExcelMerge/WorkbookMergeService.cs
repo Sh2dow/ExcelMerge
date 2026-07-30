@@ -3,7 +3,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Text;
+using System.Xml.Linq;
 using NPOI.HSSF.UserModel;
 using NPOI.SS.UserModel;
 using NPOI.SS.Util;
@@ -20,6 +23,15 @@ public sealed class WorkbookMergeException : Exception
 
 public sealed class WorkbookMergeService
 {
+    private static readonly XNamespace SpreadsheetNamespace =
+        "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+    private static readonly XNamespace OfficeRelationshipNamespace =
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    private static readonly XNamespace PackageRelationshipNamespace =
+        "http://schemas.openxmlformats.org/package/2006/relationships";
+    private static readonly XNamespace ContentTypeNamespace =
+        "http://schemas.openxmlformats.org/package/2006/content-types";
+
     public void Save(
         ExcelWorkbook baseWorkbook,
         ExcelWorkbook localWorkbook,
@@ -27,7 +39,7 @@ public sealed class WorkbookMergeService
         IReadOnlyDictionary<MergeRowKey, MergeResolution> resolutions,
         string outputPath)
     {
-        SaveCore(baseWorkbook, localWorkbook, remoteWorkbook, resolutions, null, outputPath);
+        SaveCore(baseWorkbook, localWorkbook, remoteWorkbook, resolutions, null, outputPath, null, null);
     }
 
     public void Save(
@@ -37,7 +49,7 @@ public sealed class WorkbookMergeService
         IReadOnlyDictionary<MergeCellKey, MergeCellResolution> resolutions,
         string outputPath)
     {
-        SaveCore(baseWorkbook, localWorkbook, remoteWorkbook, null, resolutions, outputPath);
+        SaveCore(baseWorkbook, localWorkbook, remoteWorkbook, null, resolutions, outputPath, null, null);
     }
 
     public void Save(
@@ -48,7 +60,28 @@ public sealed class WorkbookMergeService
         IReadOnlyDictionary<MergeCellKey, MergeCellResolution> cellResolutions,
         string outputPath)
     {
-        SaveCore(baseWorkbook, localWorkbook, remoteWorkbook, rowResolutions, cellResolutions, outputPath);
+        SaveCore(baseWorkbook, localWorkbook, remoteWorkbook, rowResolutions, cellResolutions, outputPath, null, null);
+    }
+
+    public void Save(
+        ExcelWorkbook baseWorkbook,
+        ExcelWorkbook localWorkbook,
+        ExcelWorkbook remoteWorkbook,
+        IReadOnlyDictionary<MergeRowKey, MergeResolution> rowResolutions,
+        IReadOnlyDictionary<MergeCellKey, MergeCellResolution> cellResolutions,
+        string localSourcePath,
+        string remoteSourcePath,
+        string outputPath)
+    {
+        SaveCore(
+            baseWorkbook,
+            localWorkbook,
+            remoteWorkbook,
+            rowResolutions,
+            cellResolutions,
+            outputPath,
+            localSourcePath,
+            remoteSourcePath);
     }
 
     private static void SaveCore(
@@ -57,7 +90,9 @@ public sealed class WorkbookMergeService
         ExcelWorkbook remoteWorkbook,
         IReadOnlyDictionary<MergeRowKey, MergeResolution>? rowResolutions,
         IReadOnlyDictionary<MergeCellKey, MergeCellResolution>? cellResolutions,
-        string outputPath)
+        string outputPath,
+        string? localSourcePath,
+        string? remoteSourcePath)
     {
         var extension = Path.GetExtension(outputPath);
         if (!extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase)
@@ -89,6 +124,21 @@ public sealed class WorkbookMergeService
 
         ValidateOutputLimits(results, extension.Equals(".xls", StringComparison.OrdinalIgnoreCase));
 
+        if (localSourcePath != null
+            && remoteSourcePath != null
+            && GetExcelFileKind(localSourcePath) != ExcelFileKind.Unknown
+            && GetExcelFileKind(remoteSourcePath) != ExcelFileKind.Unknown)
+        {
+            WritePreservingWorkbook(
+                localWorkbook,
+                remoteWorkbook,
+                results,
+                localSourcePath,
+                remoteSourcePath,
+                outputPath);
+            return;
+        }
+
         using IWorkbook outputWorkbook = extension.Equals(".xls", StringComparison.OrdinalIgnoreCase)
             ? new HSSFWorkbook()
             : new XSSFWorkbook();
@@ -101,8 +151,8 @@ public sealed class WorkbookMergeService
                 var outputRow = sheet.CreateRow(rowValue.Key);
                 foreach (var cellValue in rowValue.Value.OrderBy(pair => pair.Key))
                 {
-                    if (!string.IsNullOrEmpty(cellValue.Value))
-                        outputRow.CreateCell(cellValue.Key).SetCellValue(cellValue.Value);
+                    if (!string.IsNullOrEmpty(cellValue.Value.Value))
+                        outputRow.CreateCell(cellValue.Key).SetCellValue(cellValue.Value.Value);
                 }
             }
 
@@ -123,6 +173,879 @@ public sealed class WorkbookMergeService
         outputWorkbook.Write(output);
     }
 
+    private static ExcelFileKind GetExcelFileKind(string path)
+    {
+        if (!File.Exists(path))
+            return ExcelFileKind.Unknown;
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            Span<byte> signature = stackalloc byte[8];
+            if (stream.Read(signature) < signature.Length)
+                return ExcelFileKind.Unknown;
+            if (signature[0] == 0x50 && signature[1] == 0x4B)
+            {
+                stream.Position = 0;
+                using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+                return archive.GetEntry("[Content_Types].xml") != null
+                    && archive.GetEntry("xl/workbook.xml") != null
+                    ? ExcelFileKind.Xlsx
+                    : ExcelFileKind.Unknown;
+            }
+
+            ReadOnlySpan<byte> oleSignature = stackalloc byte[]
+                { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
+            return signature.SequenceEqual(oleSignature) ? ExcelFileKind.Xls : ExcelFileKind.Unknown;
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            return ExcelFileKind.Unknown;
+        }
+    }
+
+    private static void WritePreservingWorkbook(
+        ExcelWorkbook localModel,
+        ExcelWorkbook remoteModel,
+        IReadOnlyList<MergedSheetResult> results,
+        string localSourcePath,
+        string remoteSourcePath,
+        string outputPath)
+    {
+        if (!File.Exists(localSourcePath))
+            throw new WorkbookMergeException($"LOCAL source file no longer exists: {localSourcePath}");
+        if (!File.Exists(remoteSourcePath))
+            throw new WorkbookMergeException($"REMOTE source file no longer exists: {remoteSourcePath}");
+        var outputKind = Path.GetExtension(outputPath).Equals(".xlsx", StringComparison.OrdinalIgnoreCase)
+            ? ExcelFileKind.Xlsx
+            : ExcelFileKind.Xls;
+        if (GetExcelFileKind(localSourcePath) != outputKind)
+            throw new WorkbookMergeException("RESULT must use the same Excel extension as LOCAL to preserve workbook formatting.");
+
+        if (CanPatchXlsxPackage(localModel, remoteModel, results, localSourcePath, remoteSourcePath))
+        {
+            WritePatchedXlsxPackage(
+                localModel,
+                remoteModel,
+                results,
+                localSourcePath,
+                remoteSourcePath,
+                outputPath);
+            return;
+        }
+
+        var outputFullPath = Path.GetFullPath(outputPath);
+        var outputDirectory = Path.GetDirectoryName(outputFullPath)
+            ?? throw new WorkbookMergeException("RESULT must have a valid parent directory.");
+        var writePath = Path.Combine(
+            outputDirectory,
+            $".excelmerge-preserved-{Guid.NewGuid():N}{Path.GetExtension(outputPath)}");
+
+        try
+        {
+            using (var outputWorkbook = WorkbookFactory.Create(localSourcePath))
+            using (var remoteWorkbook = WorkbookFactory.Create(remoteSourcePath))
+            {
+                var remoteStyles = new Dictionary<int, ICellStyle>();
+                foreach (var result in results)
+                {
+                    var outputSheet = GetPhysicalSheet(outputWorkbook, localModel, result.Name, results.Count == 1);
+                    var remoteSheet = GetPhysicalSheet(remoteWorkbook, remoteModel, result.Name, results.Count == 1);
+                    if (outputSheet == null)
+                    {
+                        if (remoteSheet == null)
+                            throw new WorkbookMergeException($"Cannot find source sheet '{result.Name}' in LOCAL or REMOTE.");
+                        var usedNames = Enumerable.Range(0, outputWorkbook.NumberOfSheets)
+                            .Select(index => outputWorkbook.GetSheetName(index))
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        outputSheet = outputWorkbook.CreateSheet(CreateUniqueSheetName(result.Name, usedNames));
+                        CopySheet(remoteSheet, outputSheet, outputWorkbook, remoteStyles);
+                        outputWorkbook.SetSheetVisibility(
+                            outputWorkbook.GetSheetIndex(outputSheet),
+                            remoteWorkbook.GetSheetVisibility(remoteWorkbook.GetSheetIndex(remoteSheet)));
+                    }
+
+                    ApplyDuplicatedRows(
+                        outputSheet,
+                        remoteSheet,
+                        result.DuplicatedRows,
+                        outputWorkbook,
+                        remoteStyles);
+                    ApplyCellPatches(outputSheet, remoteSheet, result, outputWorkbook, remoteStyles);
+                    SynchronizeMergedRegions(outputSheet, result.MergedRegions);
+                }
+
+                var retainedLocalSheets = results
+                    .Where(result => localModel.Sheets.ContainsKey(result.Name))
+                    .Select(result => result.Name)
+                    .ToHashSet(StringComparer.Ordinal);
+                foreach (var name in localModel.Sheets.Keys.Where(name => !retainedLocalSheets.Contains(name)).ToList())
+                {
+                    var index = outputWorkbook.GetSheetIndex(name);
+                    if (index >= 0)
+                        outputWorkbook.RemoveSheetAt(index);
+                }
+
+                if (outputWorkbook.NumberOfSheets == 0)
+                    outputWorkbook.CreateSheet("Result");
+
+                using var output = new FileStream(writePath, FileMode.Create, FileAccess.Write, FileShare.None);
+                outputWorkbook.Write(output);
+            }
+
+            File.Move(writePath, outputFullPath, true);
+        }
+        finally
+        {
+            if (File.Exists(writePath))
+                File.Delete(writePath);
+        }
+    }
+
+    private static bool CanPatchXlsxPackage(
+        ExcelWorkbook localModel,
+        ExcelWorkbook remoteModel,
+        IReadOnlyList<MergedSheetResult> results,
+        string localSourcePath,
+        string remoteSourcePath)
+    {
+        return GetExcelFileKind(localSourcePath) == ExcelFileKind.Xlsx
+            && GetExcelFileKind(remoteSourcePath) == ExcelFileKind.Xlsx
+            && results.Count == localModel.Sheets.Count
+            && results.All(result => localModel.Sheets.ContainsKey(result.Name))
+            && results.All(result => remoteModel.Sheets.ContainsKey(result.Name)
+                || results.Count == 1 && remoteModel.Sheets.Count == 1)
+            && results.All(result => result.DuplicatedRows.Count == 0);
+    }
+
+    private static void WritePatchedXlsxPackage(
+        ExcelWorkbook localModel,
+        ExcelWorkbook remoteModel,
+        IReadOnlyList<MergedSheetResult> results,
+        string localSourcePath,
+        string remoteSourcePath,
+        string outputPath)
+    {
+        var localEntries = ReadPackage(localSourcePath);
+        var remoteEntries = ReadPackage(remoteSourcePath).ToDictionary(entry => entry.Name, StringComparer.Ordinal);
+        var localEntryMap = localEntries.ToDictionary(entry => entry.Name, StringComparer.Ordinal);
+        var localSheets = GetWorksheetParts(localEntryMap);
+        var remoteSheets = GetWorksheetParts(remoteEntries);
+        var remoteSharedStrings = GetSharedStrings(remoteEntries);
+        var stylesCompatible = localEntryMap.TryGetValue("xl/styles.xml", out var localStyles)
+            && remoteEntries.TryGetValue("xl/styles.xml", out var remoteStyles)
+            && localStyles.Content.SequenceEqual(remoteStyles.Content);
+        var replacements = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var requiresFullRecalculation = false;
+
+        foreach (var result in results)
+        {
+            if (!localSheets.TryGetValue(result.Name, out var localPart))
+                throw new WorkbookMergeException($"Cannot find LOCAL worksheet part for '{result.Name}'.");
+            var remotePart = GetWorksheetPart(remoteSheets, remoteModel, result.Name, results.Count == 1);
+            if (remotePart == null || !remoteEntries.TryGetValue(remotePart, out var remoteEntry))
+                throw new WorkbookMergeException($"Cannot find REMOTE worksheet part for '{result.Name}'.");
+
+            var localDocument = ParseXml(localEntryMap[localPart].Content);
+            var remoteDocument = ParseXml(remoteEntry.Content);
+            var cellsChanged = ApplyOpenXmlCellPatches(
+                localDocument,
+                remoteDocument,
+                result,
+                remoteSharedStrings,
+                stylesCompatible,
+                out _);
+            var mergedRegionsChanged = SynchronizeOpenXmlMergedRegions(localDocument, result.MergedRegions);
+            requiresFullRecalculation |= cellsChanged;
+            if (cellsChanged || mergedRegionsChanged)
+                replacements[localPart] = SerializeXml(localDocument);
+        }
+
+        if (requiresFullRecalculation)
+            PrepareFullRecalculation(localEntries, localEntryMap, replacements);
+
+        var outputFullPath = Path.GetFullPath(outputPath);
+        var outputDirectory = Path.GetDirectoryName(outputFullPath)
+            ?? throw new WorkbookMergeException("RESULT must have a valid parent directory.");
+        var writePath = Path.Combine(outputDirectory, $".excelmerge-patched-{Guid.NewGuid():N}.xlsx");
+        try
+        {
+            using (var destination = ZipFile.Open(writePath, ZipArchiveMode.Create))
+            {
+                foreach (var sourceEntry in localEntries)
+                {
+                    var entry = destination.CreateEntry(sourceEntry.Name, CompressionLevel.Optimal);
+                    entry.LastWriteTime = sourceEntry.LastWriteTime;
+                    entry.ExternalAttributes = sourceEntry.ExternalAttributes;
+                    using var output = entry.Open();
+                    output.Write(replacements.GetValueOrDefault(sourceEntry.Name, sourceEntry.Content));
+                }
+            }
+            if (File.Exists(outputFullPath))
+                File.Replace(writePath, outputFullPath, null);
+            else
+                File.Move(writePath, outputFullPath);
+        }
+        finally
+        {
+            if (File.Exists(writePath))
+                File.Delete(writePath);
+        }
+    }
+
+    private static List<XlsxPackageEntry> ReadPackage(string path)
+    {
+        var entries = new List<XlsxPackageEntry>();
+        using var archive = ZipFile.OpenRead(path);
+        foreach (var entry in archive.Entries)
+        {
+            using var input = entry.Open();
+            using var content = new MemoryStream();
+            input.CopyTo(content);
+            entries.Add(new XlsxPackageEntry(
+                entry.FullName,
+                entry.LastWriteTime,
+                entry.ExternalAttributes,
+                content.ToArray()));
+        }
+        return entries;
+    }
+
+    private static Dictionary<string, string> GetWorksheetParts(
+        IReadOnlyDictionary<string, XlsxPackageEntry> entries)
+    {
+        var workbook = ParseXml(entries["xl/workbook.xml"].Content);
+        var relationships = ParseXml(entries["xl/_rels/workbook.xml.rels"].Content)
+            .Root!
+            .Elements(PackageRelationshipNamespace + "Relationship")
+            .Where(relationship => ((string?)relationship.Attribute("Type"))?.EndsWith(
+                    "/worksheet",
+                    StringComparison.Ordinal) == true
+                && !string.Equals((string?)relationship.Attribute("TargetMode"), "External", StringComparison.Ordinal))
+            .ToDictionary(
+                relationship => (string)relationship.Attribute("Id")!,
+                relationship => ResolvePackageTarget((string)relationship.Attribute("Target")!),
+                StringComparer.Ordinal);
+        return workbook.Descendants(SpreadsheetNamespace + "sheet").ToDictionary(
+            sheet => (string)sheet.Attribute("name")!,
+            sheet => relationships[(string)sheet.Attribute(OfficeRelationshipNamespace + "id")!],
+            StringComparer.Ordinal);
+    }
+
+    private static string? GetWorksheetPart(
+        IReadOnlyDictionary<string, string> parts,
+        ExcelWorkbook model,
+        string resultName,
+        bool allowSoleSheetFallback)
+    {
+        if (parts.TryGetValue(resultName, out var part))
+            return part;
+        if (allowSoleSheetFallback && model.Sheets.Count == 1)
+            return parts.Values.Single();
+        return null;
+    }
+
+    private static string ResolvePackageTarget(string target)
+    {
+        var workbookUri = new Uri("http://excelmerge.local/xl/workbook.xml", UriKind.Absolute);
+        var resolved = new Uri(workbookUri, target.Replace('\\', '/'));
+        return Uri.UnescapeDataString(resolved.AbsolutePath.TrimStart('/'));
+    }
+
+    private static IReadOnlyList<XElement> GetSharedStrings(
+        IReadOnlyDictionary<string, XlsxPackageEntry> entries)
+    {
+        return entries.TryGetValue("xl/sharedStrings.xml", out var entry)
+            ? ParseXml(entry.Content).Root!.Elements(SpreadsheetNamespace + "si").ToList()
+            : Array.Empty<XElement>();
+    }
+
+    private static bool ApplyOpenXmlCellPatches(
+        XDocument localDocument,
+        XDocument remoteDocument,
+        MergedSheetResult result,
+        IReadOnlyList<XElement> remoteSharedStrings,
+        bool stylesCompatible,
+        out bool formulasChanged)
+    {
+        var changed = false;
+        formulasChanged = false;
+        var remoteCells = remoteDocument.Descendants(SpreadsheetNamespace + "c")
+            .ToDictionary(cell => (string)cell.Attribute("r")!, StringComparer.Ordinal);
+        foreach (var (rowIndex, cells) in result.Rows)
+        {
+            foreach (var (columnIndex, cellResult) in cells)
+            {
+                if (cellResult.Source == CellSource.Local)
+                    continue;
+                changed = true;
+
+                var outputAddress = ColumnName(columnIndex) + (rowIndex + 1);
+                var (outputCell, created) = GetOrCreateOpenXmlCell(localDocument, outputAddress, rowIndex, columnIndex);
+                if (cellResult.Source == CellSource.Custom)
+                {
+                    ValidateStandaloneFormula(outputCell.Element(SpreadsheetNamespace + "f"), outputAddress);
+                    if (outputCell.Attributes().Any(attribute => attribute.Name.LocalName is "cm" or "vm"))
+                    {
+                        throw new WorkbookMergeException(
+                            $"Cell metadata references cannot be merged safely yet: {outputAddress}.");
+                    }
+                    formulasChanged |= outputCell.Element(SpreadsheetNamespace + "f") != null;
+                    SetOpenXmlInlineString(outputCell, outputAddress, cellResult.Value);
+                    continue;
+                }
+
+                var remoteAddress = ColumnName(columnIndex) + (cellResult.SourceRowIndex + 1);
+                remoteCells.TryGetValue(remoteAddress, out var remoteCell);
+                formulasChanged |= CopyOpenXmlCellPayload(
+                    remoteCell,
+                    outputCell,
+                    outputAddress,
+                    created,
+                    stylesCompatible,
+                    remoteSharedStrings);
+            }
+        }
+        return changed;
+    }
+
+    private static (XElement Cell, bool Created) GetOrCreateOpenXmlCell(
+        XDocument document,
+        string address,
+        int rowIndex,
+        int columnIndex)
+    {
+        var existing = document.Descendants(SpreadsheetNamespace + "c")
+            .FirstOrDefault(cell => string.Equals((string?)cell.Attribute("r"), address, StringComparison.Ordinal));
+        if (existing != null)
+            return (existing, false);
+
+        var sheetData = document.Descendants(SpreadsheetNamespace + "sheetData").Single();
+        var rowNumber = rowIndex + 1;
+        var row = sheetData.Elements(SpreadsheetNamespace + "row")
+            .FirstOrDefault(element => (int?)element.Attribute("r") == rowNumber);
+        if (row == null)
+        {
+            row = new XElement(SpreadsheetNamespace + "row", new XAttribute("r", rowNumber));
+            var followingRow = sheetData.Elements(SpreadsheetNamespace + "row")
+                .FirstOrDefault(element => (int?)element.Attribute("r") > rowNumber);
+            if (followingRow == null)
+                sheetData.Add(row);
+            else
+                followingRow.AddBeforeSelf(row);
+        }
+
+        var cell = new XElement(SpreadsheetNamespace + "c", new XAttribute("r", address));
+        var followingCell = row.Elements(SpreadsheetNamespace + "c")
+            .FirstOrDefault(element => GetColumnIndex((string)element.Attribute("r")!) > columnIndex);
+        if (followingCell == null)
+            row.Add(cell);
+        else
+            followingCell.AddBeforeSelf(cell);
+        return (cell, true);
+    }
+
+    private static bool CopyOpenXmlCellPayload(
+        XElement? source,
+        XElement destination,
+        string destinationAddress,
+        bool destinationWasCreated,
+        bool stylesCompatible,
+        IReadOnlyList<XElement> sharedStrings)
+    {
+        var sourceFormula = source?.Element(SpreadsheetNamespace + "f");
+        var destinationFormula = destination.Element(SpreadsheetNamespace + "f");
+        ValidateStandaloneFormula(sourceFormula, destinationAddress);
+        ValidateStandaloneFormula(destinationFormula, destinationAddress);
+        if (source?.Attributes().Any(attribute => attribute.Name.LocalName is "cm" or "vm") == true
+            || destination.Attributes().Any(attribute => attribute.Name.LocalName is "cm" or "vm"))
+        {
+            throw new WorkbookMergeException(
+                $"Cell metadata references cannot be merged safely yet: {destinationAddress}.");
+        }
+
+        var formulaChanged = sourceFormula != null || destinationFormula != null;
+        var destinationStyle = (string?)destination.Attribute("s");
+        destination.RemoveAttributes();
+        destination.SetAttributeValue("r", destinationAddress);
+        if (!destinationWasCreated && destinationStyle != null)
+            destination.SetAttributeValue("s", destinationStyle);
+        else if (stylesCompatible && source?.Attribute("s") is { } sourceStyle)
+            destination.SetAttributeValue("s", sourceStyle.Value);
+        else if (destinationWasCreated
+            && source?.Attribute("s") is { Value: not "0" }
+            && !stylesCompatible)
+        {
+            throw new WorkbookMergeException(
+                $"A REMOTE-only styled cell cannot be mapped safely into LOCAL yet: {destinationAddress}.");
+        }
+
+        destination.RemoveNodes();
+        if (source == null)
+            return formulaChanged;
+
+        var sourceType = (string?)source.Attribute("t");
+        foreach (var attribute in source.Attributes().Where(attribute => attribute.Name.LocalName is not ("r" or "s" or "t")))
+            destination.SetAttributeValue(attribute.Name, attribute.Value);
+        if (sourceType == "s")
+        {
+            var value = source.Element(SpreadsheetNamespace + "v")?.Value;
+            if (value == null || !int.TryParse(value, out var index) || index < 0 || index >= sharedStrings.Count)
+                throw new WorkbookMergeException($"REMOTE shared string index is invalid at {destinationAddress}.");
+            destination.SetAttributeValue("t", "inlineStr");
+            destination.Add(new XElement(
+                SpreadsheetNamespace + "is",
+                sharedStrings[index].Elements().Select(element => new XElement(element))));
+            return formulaChanged;
+        }
+
+        if (sourceType != null)
+            destination.SetAttributeValue("t", sourceType);
+        destination.Add(source.Elements()
+            .Where(element => element.Name != SpreadsheetNamespace + "v" || sourceFormula == null)
+            .Select(element => new XElement(element)));
+        return formulaChanged;
+    }
+
+    private static void ValidateStandaloneFormula(XElement? formula, string address)
+    {
+        var formulaType = (string?)formula?.Attribute("t");
+        if (formulaType != null && !formulaType.Equals("normal", StringComparison.Ordinal))
+        {
+            throw new WorkbookMergeException(
+                $"Shared, array, and data-table formulas cannot be patched safely yet: {address}.");
+        }
+    }
+
+    private static void SetOpenXmlInlineString(XElement cell, string address, string value)
+    {
+        var style = (string?)cell.Attribute("s");
+        cell.RemoveAttributes();
+        cell.SetAttributeValue("r", address);
+        if (style != null)
+            cell.SetAttributeValue("s", style);
+        cell.SetAttributeValue("t", "inlineStr");
+        cell.ReplaceNodes(new XElement(
+            SpreadsheetNamespace + "is",
+            new XElement(
+                SpreadsheetNamespace + "t",
+                new XAttribute(XNamespace.Xml + "space", "preserve"),
+                value)));
+    }
+
+    private static void PrepareFullRecalculation(
+        ICollection<XlsxPackageEntry> localEntries,
+        IReadOnlyDictionary<string, XlsxPackageEntry> localEntryMap,
+        IDictionary<string, byte[]> replacements)
+    {
+        var workbook = ParseXml(localEntryMap["xl/workbook.xml"].Content);
+        var root = workbook.Root ?? throw new WorkbookMergeException("Workbook XML has no root element.");
+        var calculation = root.Element(SpreadsheetNamespace + "calcPr");
+        if (calculation == null)
+        {
+            calculation = new XElement(SpreadsheetNamespace + "calcPr");
+            var laterNames = new HashSet<XName>
+            {
+                SpreadsheetNamespace + "oleSize",
+                SpreadsheetNamespace + "customWorkbookViews",
+                SpreadsheetNamespace + "pivotCaches",
+                SpreadsheetNamespace + "smartTagPr",
+                SpreadsheetNamespace + "smartTagTypes",
+                SpreadsheetNamespace + "webPublishing",
+                SpreadsheetNamespace + "fileRecoveryPr",
+                SpreadsheetNamespace + "webPublishObjects",
+                SpreadsheetNamespace + "extLst",
+            };
+            var following = root.Elements().FirstOrDefault(element => laterNames.Contains(element.Name));
+            if (following == null)
+                root.Add(calculation);
+            else
+                following.AddBeforeSelf(calculation);
+        }
+        calculation.SetAttributeValue("calcMode", "auto");
+        calculation.SetAttributeValue("fullCalcOnLoad", 1);
+        calculation.SetAttributeValue("forceFullCalc", 1);
+        replacements["xl/workbook.xml"] = SerializeXml(workbook);
+
+        var relationshipsPath = "xl/_rels/workbook.xml.rels";
+        var relationships = ParseXml(localEntryMap[relationshipsPath].Content);
+        var calculationRelationships = relationships.Root!
+            .Elements(PackageRelationshipNamespace + "Relationship")
+            .Where(relationship => ((string?)relationship.Attribute("Type"))?.EndsWith(
+                "/calcChain",
+                StringComparison.Ordinal) == true)
+            .ToList();
+        var calculationParts = calculationRelationships
+            .Select(relationship => ResolvePackageTarget((string)relationship.Attribute("Target")!))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var relationship in calculationRelationships)
+            relationship.Remove();
+        if (calculationRelationships.Count > 0)
+            replacements[relationshipsPath] = SerializeXml(relationships);
+
+        if (calculationParts.Count == 0)
+            return;
+        foreach (var entry in localEntries.Where(entry => calculationParts.Contains(entry.Name)).ToList())
+            localEntries.Remove(entry);
+
+        const string contentTypesPath = "[Content_Types].xml";
+        var contentTypes = ParseXml(localEntryMap[contentTypesPath].Content);
+        contentTypes.Root!
+            .Elements(ContentTypeNamespace + "Override")
+            .Where(overrideElement => calculationParts.Contains(
+                ((string)overrideElement.Attribute("PartName")!).TrimStart('/')))
+            .Remove();
+        replacements[contentTypesPath] = SerializeXml(contentTypes);
+    }
+
+    private static bool SynchronizeOpenXmlMergedRegions(
+        XDocument document,
+        IReadOnlyList<ExcelMergedRegion> expectedRegions)
+    {
+        var mergeCells = document.Descendants(SpreadsheetNamespace + "mergeCells").FirstOrDefault();
+        var existing = mergeCells?.Elements(SpreadsheetNamespace + "mergeCell")
+            .Select(element => (string)element.Attribute("ref")!)
+            .ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
+        var expected = expectedRegions.Select(FormatRegion).ToList();
+        if (existing.SetEquals(expected))
+            return false;
+        if (expected.Count == 0)
+        {
+            mergeCells?.Remove();
+            return true;
+        }
+
+        if (mergeCells == null)
+        {
+            mergeCells = new XElement(SpreadsheetNamespace + "mergeCells");
+            var root = document.Root ?? throw new WorkbookMergeException("Worksheet XML has no root element.");
+            var laterElementNames = new HashSet<XName>
+            {
+                SpreadsheetNamespace + "phoneticPr",
+                SpreadsheetNamespace + "conditionalFormatting",
+                SpreadsheetNamespace + "dataValidations",
+                SpreadsheetNamespace + "hyperlinks",
+                SpreadsheetNamespace + "printOptions",
+                SpreadsheetNamespace + "pageMargins",
+                SpreadsheetNamespace + "pageSetup",
+                SpreadsheetNamespace + "headerFooter",
+                SpreadsheetNamespace + "rowBreaks",
+                SpreadsheetNamespace + "colBreaks",
+                SpreadsheetNamespace + "customProperties",
+                SpreadsheetNamespace + "cellWatches",
+                SpreadsheetNamespace + "ignoredErrors",
+                SpreadsheetNamespace + "smartTags",
+                SpreadsheetNamespace + "drawing",
+                SpreadsheetNamespace + "legacyDrawing",
+                SpreadsheetNamespace + "legacyDrawingHF",
+                SpreadsheetNamespace + "picture",
+                SpreadsheetNamespace + "oleObjects",
+                SpreadsheetNamespace + "controls",
+                SpreadsheetNamespace + "webPublishItems",
+                SpreadsheetNamespace + "tableParts",
+                SpreadsheetNamespace + "extLst",
+            };
+            var following = root.Elements().FirstOrDefault(element => laterElementNames.Contains(element.Name));
+            if (following == null)
+                root.Add(mergeCells);
+            else
+                following.AddBeforeSelf(mergeCells);
+        }
+        mergeCells.RemoveNodes();
+        mergeCells.SetAttributeValue("count", expected.Count);
+        mergeCells.Add(expected.Select(region =>
+            new XElement(SpreadsheetNamespace + "mergeCell", new XAttribute("ref", region))));
+        return true;
+    }
+
+    private static string FormatRegion(ExcelMergedRegion region) =>
+        $"{ColumnName(region.FirstColumn)}{region.FirstRow + 1}:{ColumnName(region.LastColumn)}{region.LastRow + 1}";
+
+    private static int GetColumnIndex(string address)
+    {
+        var result = 0;
+        foreach (var character in address.TakeWhile(char.IsLetter))
+            result = result * 26 + char.ToUpperInvariant(character) - 'A' + 1;
+        return result - 1;
+    }
+
+    private static XDocument ParseXml(byte[] content)
+    {
+        using var input = new MemoryStream(content);
+        return XDocument.Load(input, LoadOptions.PreserveWhitespace);
+    }
+
+    private static byte[] SerializeXml(XDocument document)
+    {
+        using var output = new MemoryStream();
+        using (var writer = new StreamWriter(output, new UTF8Encoding(false), leaveOpen: true))
+            document.Save(writer, SaveOptions.DisableFormatting);
+        return output.ToArray();
+    }
+
+    private static ISheet? GetPhysicalSheet(
+        IWorkbook workbook,
+        ExcelWorkbook model,
+        string resultName,
+        bool allowSoleSheetFallback)
+    {
+        if (model.Sheets.ContainsKey(resultName))
+            return workbook.GetSheet(resultName);
+        if (allowSoleSheetFallback && model.Sheets.Count == 1)
+            return workbook.GetSheet(model.Sheets.Keys.Single()) ?? workbook.GetSheetAt(0);
+        return null;
+    }
+
+    private static void ApplyDuplicatedRows(
+        ISheet outputSheet,
+        ISheet? remoteSheet,
+        IReadOnlyList<int> duplicatedRows,
+        IWorkbook outputWorkbook,
+        IDictionary<int, ICellStyle> remoteStyles)
+    {
+        var shift = 0;
+        foreach (var sourceRowIndex in duplicatedRows.OrderBy(index => index))
+        {
+            var outputRowIndex = sourceRowIndex + shift + 1;
+            if (outputRowIndex <= outputSheet.LastRowNum)
+                outputSheet.ShiftRows(outputRowIndex, outputSheet.LastRowNum, 1, true, false);
+
+            var outputRow = outputSheet.GetRow(outputRowIndex) ?? outputSheet.CreateRow(outputRowIndex);
+            var remoteRow = remoteSheet?.GetRow(sourceRowIndex);
+            if (remoteRow != null && CopyRow(remoteRow, outputRow, outputWorkbook, remoteStyles))
+                outputSheet.ForceFormulaRecalculation = true;
+            shift++;
+        }
+    }
+
+    private static void ApplyCellPatches(
+        ISheet outputSheet,
+        ISheet? remoteSheet,
+        MergedSheetResult result,
+        IWorkbook outputWorkbook,
+        IDictionary<int, ICellStyle> remoteStyles)
+    {
+        foreach (var (rowIndex, cells) in result.Rows)
+        {
+            var outputRow = outputSheet.GetRow(rowIndex);
+            if (outputRow == null && cells.Values.Any(cell => cell.Source != CellSource.Local))
+            {
+                outputRow = outputSheet.CreateRow(rowIndex);
+                var remoteSourceRow = cells.Values
+                    .Where(cell => cell.Source == CellSource.Remote)
+                    .Select(cell => cell.SourceRowIndex)
+                    .FirstOrDefault(-1);
+                var remoteRow = remoteSourceRow >= 0 ? remoteSheet?.GetRow(remoteSourceRow) : null;
+                if (remoteRow != null)
+                    CopyRowFormatting(remoteRow, outputRow, outputWorkbook, remoteStyles);
+            }
+            if (outputRow == null)
+                continue;
+
+            foreach (var (columnIndex, cell) in cells)
+            {
+                if (cell.Source == CellSource.Local)
+                    continue;
+
+                var outputCell = outputRow.GetCell(columnIndex);
+                if (cell.Source == CellSource.Custom)
+                {
+                    outputCell ??= outputRow.CreateCell(columnIndex);
+                    outputCell.SetCellType(CellType.String);
+                    outputCell.SetCellValue(cell.Value);
+                    continue;
+                }
+
+                var remoteCell = remoteSheet?.GetRow(cell.SourceRowIndex)?.GetCell(columnIndex);
+                if (remoteCell == null)
+                {
+                    outputCell?.SetCellType(CellType.Blank);
+                    continue;
+                }
+
+                var created = outputCell == null;
+                outputCell ??= outputRow.CreateCell(columnIndex);
+                CopyCellValue(remoteCell, outputCell);
+                if (created)
+                    CopyCellStyle(remoteCell, outputCell, outputWorkbook, remoteStyles);
+                if (remoteCell.CellType == CellType.Formula)
+                    outputSheet.ForceFormulaRecalculation = true;
+            }
+        }
+    }
+
+    private static void CopySheet(
+        ISheet source,
+        ISheet destination,
+        IWorkbook destinationWorkbook,
+        IDictionary<int, ICellStyle> styleMap)
+    {
+        destination.DefaultColumnWidth = source.DefaultColumnWidth;
+        destination.DefaultRowHeight = source.DefaultRowHeight;
+        destination.DisplayGridlines = source.DisplayGridlines;
+        destination.IsPrintGridlines = source.IsPrintGridlines;
+        destination.FitToPage = source.FitToPage;
+        destination.HorizontallyCenter = source.HorizontallyCenter;
+        destination.VerticallyCenter = source.VerticallyCenter;
+        destination.Autobreaks = source.Autobreaks;
+
+        var maximumColumn = -1;
+        var copiedFormula = false;
+        for (var rowIndex = 0; rowIndex <= source.LastRowNum; rowIndex++)
+        {
+            var sourceRow = source.GetRow(rowIndex);
+            if (sourceRow == null)
+                continue;
+            var destinationRow = destination.CreateRow(rowIndex);
+            copiedFormula |= CopyRow(sourceRow, destinationRow, destinationWorkbook, styleMap);
+            maximumColumn = Math.Max(maximumColumn, sourceRow.LastCellNum - 1);
+        }
+
+        for (var column = 0; column <= maximumColumn; column++)
+        {
+            destination.SetColumnWidth(column, source.GetColumnWidth(column));
+            destination.SetColumnHidden(column, source.IsColumnHidden(column));
+            var sourceStyle = source.GetColumnStyle(column);
+            if (sourceStyle != null && sourceStyle.Index != 0)
+                destination.SetDefaultColumnStyle(column, MapStyle(sourceStyle, destinationWorkbook, styleMap));
+        }
+
+        for (var index = 0; index < source.NumMergedRegions; index++)
+        {
+            var region = source.GetMergedRegion(index);
+            destination.AddMergedRegion(new CellRangeAddress(
+                region.FirstRow,
+                region.LastRow,
+                region.FirstColumn,
+                region.LastColumn));
+        }
+
+        var pane = source.PaneInformation;
+        if (pane != null && pane.IsFreezePane())
+        {
+            destination.CreateFreezePane(
+                pane.VerticalSplitPosition,
+                pane.HorizontalSplitPosition,
+                pane.VerticalSplitLeftColumn,
+                pane.HorizontalSplitTopRow);
+        }
+        if (copiedFormula)
+            destination.ForceFormulaRecalculation = true;
+    }
+
+    private static bool CopyRow(
+        IRow source,
+        IRow destination,
+        IWorkbook destinationWorkbook,
+        IDictionary<int, ICellStyle> styleMap)
+    {
+        CopyRowFormatting(source, destination, destinationWorkbook, styleMap);
+        var copiedFormula = false;
+        for (var column = source.FirstCellNum; column >= 0 && column < source.LastCellNum; column++)
+        {
+            var sourceCell = source.GetCell(column);
+            if (sourceCell == null)
+                continue;
+            var destinationCell = destination.CreateCell(column);
+            CopyCellValue(sourceCell, destinationCell);
+            CopyCellStyle(sourceCell, destinationCell, destinationWorkbook, styleMap);
+            copiedFormula |= sourceCell.CellType == CellType.Formula;
+        }
+        return copiedFormula;
+    }
+
+    private static void CopyRowFormatting(
+        IRow source,
+        IRow destination,
+        IWorkbook destinationWorkbook,
+        IDictionary<int, ICellStyle> styleMap)
+    {
+        destination.Height = source.Height;
+        destination.ZeroHeight = source.ZeroHeight;
+        if (source.IsFormatted && source.RowStyle != null)
+            destination.RowStyle = MapStyle(source.RowStyle, destinationWorkbook, styleMap);
+    }
+
+    private static void CopyCellValue(ICell source, ICell destination)
+    {
+        if (destination.CellType == CellType.Formula && source.CellType != CellType.Formula)
+            destination.SetCellType(CellType.Blank);
+        switch (source.CellType)
+        {
+            case CellType.Blank:
+                destination.SetCellType(CellType.Blank);
+                break;
+            case CellType.Boolean:
+                destination.SetCellValue(source.BooleanCellValue);
+                break;
+            case CellType.Error:
+                destination.SetCellErrorValue(source.ErrorCellValue);
+                break;
+            case CellType.Formula:
+                destination.SetCellFormula(source.CellFormula);
+                break;
+            case CellType.Numeric:
+                destination.SetCellValue(source.NumericCellValue);
+                break;
+            case CellType.String:
+                destination.SetCellValue(source.StringCellValue);
+                break;
+            default:
+                destination.SetCellType(CellType.Blank);
+                break;
+        }
+    }
+
+    private static void CopyCellStyle(
+        ICell source,
+        ICell destination,
+        IWorkbook destinationWorkbook,
+        IDictionary<int, ICellStyle> styleMap)
+    {
+        if (source.CellStyle == null || source.CellStyle.Index == 0)
+            return;
+        destination.CellStyle = MapStyle(source.CellStyle, destinationWorkbook, styleMap);
+    }
+
+    private static ICellStyle MapStyle(
+        ICellStyle source,
+        IWorkbook destinationWorkbook,
+        IDictionary<int, ICellStyle> styleMap)
+    {
+        if (styleMap.TryGetValue(source.Index, out var mapped))
+            return mapped;
+        mapped = destinationWorkbook.CreateCellStyle();
+        mapped.CloneStyleFrom(source);
+        styleMap[source.Index] = mapped;
+        return mapped;
+    }
+
+    private static void SynchronizeMergedRegions(
+        ISheet sheet,
+        IReadOnlyList<ExcelMergedRegion> expectedRegions)
+    {
+        var existing = Enumerable.Range(0, sheet.NumMergedRegions)
+            .Select(index => sheet.GetMergedRegion(index))
+            .Select(region => new ExcelMergedRegion(
+                region.FirstRow,
+                region.LastRow,
+                region.FirstColumn,
+                region.LastColumn))
+            .ToHashSet();
+        if (existing.SetEquals(expectedRegions))
+            return;
+
+        for (var index = sheet.NumMergedRegions - 1; index >= 0; index--)
+            sheet.RemoveMergedRegion(index);
+        foreach (var region in expectedRegions)
+        {
+            sheet.AddMergedRegion(new CellRangeAddress(
+                region.FirstRow,
+                region.LastRow,
+                region.FirstColumn,
+                region.LastColumn));
+        }
+    }
+
     private static MergedSheetResult MergeSheet(
         SheetGroup group,
         IReadOnlyDictionary<MergeRowKey, MergeResolution>? rowResolutions,
@@ -138,7 +1061,7 @@ public sealed class WorkbookMergeService
             .Distinct()
             .OrderBy(index => index)
             .ToList();
-        var rows = new SortedDictionary<int, Dictionary<int, string>>();
+        var rows = new SortedDictionary<int, Dictionary<int, MergedCellResult>>();
         var duplicatedRows = new List<int>();
         var shift = 0;
 
@@ -177,8 +1100,8 @@ public sealed class WorkbookMergeService
             var outputRowIndex = rowIndex + shift;
             if (keepBoth)
             {
-                rows[outputRowIndex] = localSnapshot.CopyRow(rowIndex);
-                rows[outputRowIndex + 1] = remoteSnapshot.CopyRow(rowIndex);
+                rows[outputRowIndex] = localSnapshot.CopyRow(rowIndex, CellSource.Local);
+                rows[outputRowIndex + 1] = remoteSnapshot.CopyRow(rowIndex, CellSource.Remote);
                 duplicatedRows.Add(rowIndex);
                 shift++;
                 continue;
@@ -186,16 +1109,16 @@ public sealed class WorkbookMergeService
 
             if (conflictColumns.Count > 0 && rowResolution == MergeResolution.Local)
             {
-                rows[outputRowIndex] = localSnapshot.CopyRow(rowIndex);
+                rows[outputRowIndex] = CopySelectedRow(localSnapshot, rowIndex, columns, CellSource.Local);
                 continue;
             }
             if (conflictColumns.Count > 0 && rowResolution == MergeResolution.Remote)
             {
-                rows[outputRowIndex] = remoteSnapshot.CopyRow(rowIndex);
+                rows[outputRowIndex] = CopySelectedRow(remoteSnapshot, rowIndex, columns, CellSource.Remote);
                 continue;
             }
 
-            var mergedRow = new Dictionary<int, string>();
+            var mergedRow = new Dictionary<int, MergedCellResult>();
             foreach (var column in columns)
             {
                 var baseValue = baseSnapshot.GetValue(rowIndex, column);
@@ -204,7 +1127,7 @@ public sealed class WorkbookMergeService
                 var cellResolution = rowResolution != MergeResolution.Unresolved
                     ? new MergeCellResolution(rowResolution)
                     : GetCellResolution(cellResolutions, new MergeCellKey(group.ResultName, rowIndex, column));
-                mergedRow[column] = MergeValue(baseValue, localValue, remoteValue, cellResolution);
+                mergedRow[column] = MergeValue(baseValue, localValue, remoteValue, cellResolution, rowIndex);
             }
             rows[outputRowIndex] = mergedRow;
         }
@@ -215,26 +1138,41 @@ public sealed class WorkbookMergeService
             throw new WorkbookMergeException($"KEEP BOTH cannot safely duplicate a row inside a vertical merged range in sheet '{group.ResultName}'.");
         var transformedRegions = TransformRegions(regions, duplicatedRows);
         ValidateRegions(transformedRegions, group.ResultName);
-        return new MergedSheetResult(group.ResultName, rows, transformedRegions);
+        return new MergedSheetResult(group.ResultName, rows, transformedRegions, duplicatedRows);
     }
 
-    private static string MergeValue(
+    private static Dictionary<int, MergedCellResult> CopySelectedRow(
+        SheetSnapshot snapshot,
+        int rowIndex,
+        IEnumerable<int> columns,
+        CellSource source)
+    {
+        return columns.ToDictionary(
+            column => column,
+            column => new MergedCellResult(snapshot.GetValue(rowIndex, column), source, rowIndex));
+    }
+
+    private static MergedCellResult MergeValue(
         string baseValue,
         string localValue,
         string remoteValue,
-        MergeCellResolution resolution)
+        MergeCellResolution resolution,
+        int sourceRowIndex = -1)
     {
         if (localValue == remoteValue)
-            return localValue;
+            return new MergedCellResult(localValue, CellSource.Local, sourceRowIndex);
         if (localValue == baseValue)
-            return remoteValue;
+            return new MergedCellResult(remoteValue, CellSource.Remote, sourceRowIndex);
         if (remoteValue == baseValue)
-            return localValue;
+            return new MergedCellResult(localValue, CellSource.Local, sourceRowIndex);
         return resolution.Resolution switch
         {
-            MergeResolution.Remote => remoteValue,
-            MergeResolution.Custom => resolution.CustomValue ?? string.Empty,
-            _ => localValue,
+            MergeResolution.Remote => new MergedCellResult(remoteValue, CellSource.Remote, sourceRowIndex),
+            MergeResolution.Custom => new MergedCellResult(
+                resolution.CustomValue ?? string.Empty,
+                CellSource.Custom,
+                sourceRowIndex),
+            _ => new MergedCellResult(localValue, CellSource.Local, sourceRowIndex),
         };
     }
 
@@ -414,10 +1352,33 @@ public sealed class WorkbookMergeService
         ExcelSheet? Local,
         ExcelSheet? Remote);
 
+    private enum CellSource
+    {
+        Local,
+        Remote,
+        Custom,
+    }
+
+    private enum ExcelFileKind
+    {
+        Unknown,
+        Xlsx,
+        Xls,
+    }
+
+    private readonly record struct MergedCellResult(string Value, CellSource Source, int SourceRowIndex);
+
+    private sealed record XlsxPackageEntry(
+        string Name,
+        DateTimeOffset LastWriteTime,
+        int ExternalAttributes,
+        byte[] Content);
+
     private sealed record MergedSheetResult(
         string Name,
-        SortedDictionary<int, Dictionary<int, string>> Rows,
-        IReadOnlyList<ExcelMergedRegion> MergedRegions);
+        SortedDictionary<int, Dictionary<int, MergedCellResult>> Rows,
+        IReadOnlyList<ExcelMergedRegion> MergedRegions,
+        IReadOnlyList<int> DuplicatedRows);
 
     private sealed class SheetSnapshot
     {
@@ -453,11 +1414,13 @@ public sealed class WorkbookMergeService
             return Rows.TryGetValue(row, out var values) ? values.Keys : Enumerable.Empty<int>();
         }
 
-        public Dictionary<int, string> CopyRow(int row)
+        public Dictionary<int, MergedCellResult> CopyRow(int row, CellSource source)
         {
             return Rows.TryGetValue(row, out var values)
-                ? new Dictionary<int, string>(values)
-                : new Dictionary<int, string>();
+                ? values.ToDictionary(
+                    pair => pair.Key,
+                    pair => new MergedCellResult(pair.Value, source, row))
+                : new Dictionary<int, MergedCellResult>();
         }
 
         public static bool AreEqual(ExcelSheet? first, ExcelSheet? second)

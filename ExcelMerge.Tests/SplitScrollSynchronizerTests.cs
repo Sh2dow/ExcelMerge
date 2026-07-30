@@ -28,4 +28,19 @@ public sealed class SplitScrollSynchronizerTests
 
         Assert.AreEqual(250, result);
     }
+
+    [TestMethod]
+    public void ContentPositionCentersTheRequestedLocation()
+    {
+        var result = SplitScrollSynchronizer.ContentPositionToOffset(.5, 0, 800, 200);
+
+        Assert.AreEqual(400, result);
+    }
+
+    [TestMethod]
+    public void ContentPositionClampsAtBothEnds()
+    {
+        Assert.AreEqual(0, SplitScrollSynchronizer.ContentPositionToOffset(0, 0, 800, 200));
+        Assert.AreEqual(800, SplitScrollSynchronizer.ContentPositionToOffset(1, 0, 800, 200));
+    }
 }
