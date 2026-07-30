@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 using NetDiff;
+using System.Text;
 
 namespace ExcelMerge.Avalonia;
 
@@ -35,30 +36,30 @@ internal static class InlineTextDiff
                 Segments(remote, true));
         }
 
-        var localSegments = new List<InlineDiffSegment>();
-        var remoteSegments = new List<InlineDiffSegment>();
+        var localSegments = new SegmentBuilder();
+        var remoteSegments = new SegmentBuilder();
         var lineDiff = Optimize(SplitLines(local), SplitLines(remote));
         foreach (var line in lineDiff)
         {
             switch (line.Status)
             {
                 case DiffStatus.Equal:
-                    Append(localSegments, line.Obj1, false);
-                    Append(remoteSegments, line.Obj2, false);
+                    localSegments.Append(line.Obj1, false);
+                    remoteSegments.Append(line.Obj2, false);
                     break;
                 case DiffStatus.Modified:
                     AppendCharacterDiff(line.Obj1, line.Obj2, localSegments, remoteSegments);
                     break;
                 case DiffStatus.Deleted:
-                    Append(localSegments, line.Obj1, true);
+                    localSegments.Append(line.Obj1, true);
                     break;
                 case DiffStatus.Inserted:
-                    Append(remoteSegments, line.Obj2, true);
+                    remoteSegments.Append(line.Obj2, true);
                     break;
             }
         }
 
-        return new InlineDiffResult(localSegments, remoteSegments);
+        return new InlineDiffResult(localSegments.Build(), remoteSegments.Build());
     }
 
     public static void Apply(SelectableTextBlock target, IReadOnlyList<InlineDiffSegment> segments)
@@ -76,26 +77,26 @@ internal static class InlineTextDiff
     private static void AppendCharacterDiff(
         string local,
         string remote,
-        ICollection<InlineDiffSegment> localSegments,
-        ICollection<InlineDiffSegment> remoteSegments)
+        SegmentBuilder localSegments,
+        SegmentBuilder remoteSegments)
     {
         foreach (var character in Optimize(local, remote))
         {
             switch (character.Status)
             {
                 case DiffStatus.Equal:
-                    Append(localSegments, character.Obj1.ToString(), false);
-                    Append(remoteSegments, character.Obj2.ToString(), false);
+                    localSegments.Append(character.Obj1, false);
+                    remoteSegments.Append(character.Obj2, false);
                     break;
                 case DiffStatus.Modified:
-                    Append(localSegments, character.Obj1.ToString(), true);
-                    Append(remoteSegments, character.Obj2.ToString(), true);
+                    localSegments.Append(character.Obj1, true);
+                    remoteSegments.Append(character.Obj2, true);
                     break;
                 case DiffStatus.Deleted:
-                    Append(localSegments, character.Obj1.ToString(), true);
+                    localSegments.Append(character.Obj1, true);
                     break;
                 case DiffStatus.Inserted:
-                    Append(remoteSegments, character.Obj2.ToString(), true);
+                    remoteSegments.Append(character.Obj2, true);
                     break;
             }
         }
@@ -132,18 +133,45 @@ internal static class InlineTextDiff
             ? Array.Empty<InlineDiffSegment>()
             : new[] { new InlineDiffSegment(value, changed) };
 
-    private static void Append(ICollection<InlineDiffSegment> segments, string text, bool changed)
+    private sealed class SegmentBuilder
     {
-        if (string.IsNullOrEmpty(text))
-            return;
+        private readonly List<InlineDiffSegment> _segments = new();
+        private readonly StringBuilder _buffer = new();
+        private bool? _changed;
 
-        if (segments is List<InlineDiffSegment> list
-            && list.Count > 0
-            && list[^1].IsChanged == changed)
+        public void Append(string text, bool changed)
         {
-            list[^1] = list[^1] with { Text = list[^1].Text + text };
-            return;
+            if (string.IsNullOrEmpty(text))
+                return;
+            StartSegment(changed);
+            _buffer.Append(text);
         }
-        segments.Add(new InlineDiffSegment(text, changed));
+
+        public void Append(char value, bool changed)
+        {
+            StartSegment(changed);
+            _buffer.Append(value);
+        }
+
+        public IReadOnlyList<InlineDiffSegment> Build()
+        {
+            Flush();
+            return _segments.Count == 0 ? Array.Empty<InlineDiffSegment>() : _segments;
+        }
+
+        private void StartSegment(bool changed)
+        {
+            if (_changed.HasValue && _changed.Value != changed)
+                Flush();
+            _changed = changed;
+        }
+
+        private void Flush()
+        {
+            if (_buffer.Length == 0 || !_changed.HasValue)
+                return;
+            _segments.Add(new InlineDiffSegment(_buffer.ToString(), _changed.Value));
+            _buffer.Clear();
+        }
     }
 }

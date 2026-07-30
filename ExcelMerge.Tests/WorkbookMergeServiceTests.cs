@@ -4,6 +4,7 @@ using NPOI.SS.UserModel;
 using NPOI.SS.Util;
 using NPOI.XSSF.UserModel;
 using System.IO.Compression;
+using System.Text;
 using System.Xml.Linq;
 
 namespace ExcelMerge.Tests;
@@ -388,6 +389,9 @@ public sealed class WorkbookMergeServiceTests
             WriteFormulaWorkbook(localPath, "1+2", IndexedColors.LightCornflowerBlue.Index);
             WriteFormulaWorkbook(remotePath, "1+3", IndexedColors.LightGreen.Index);
             var config = new ExcelSheetReadConfig();
+            var localTheme = Encoding.UTF8.GetBytes(
+                "<a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Preserve me\"/>");
+            AddPackageEntry(localPath, "xl/theme/theme1.xml", localTheme);
 
             new WorkbookMergeService().Save(
                 ExcelWorkbook.Create(basePath, config),
@@ -414,6 +418,7 @@ public sealed class WorkbookMergeServiceTests
                 sheet.GetRow(1).GetCell(0).CellStyle.FillForegroundColor);
             Assert.AreEqual(32f, sheet.GetRow(1).HeightInPoints);
             Assert.AreEqual("A3:B3", sheet.GetMergedRegion(0).FormatAsString());
+            CollectionAssert.AreEqual(localTheme, ReadPackageEntry(outputPath, "xl/theme/theme1.xml"));
         }
         finally
         {
@@ -498,6 +503,60 @@ public sealed class WorkbookMergeServiceTests
                 .Single(cell => (string)cell.Attribute("r")! == "A2");
             Assert.AreEqual("inlineStr", (string?)untouched.Attribute("t"));
             Assert.AreEqual("untouched inline text", untouched.Descendants(spreadsheet + "t").Single().Value);
+        }
+        finally
+        {
+            Delete(basePath, localPath, remotePath, outputPath);
+        }
+    }
+
+    [TestMethod]
+    public void SaveInsertsRemoteCellsAndRowsInWorksheetOrder()
+    {
+        var basePath = TempPath();
+        var localPath = TempPath();
+        var remotePath = TempPath();
+        var outputPath = TempPath();
+        try
+        {
+            WriteSparsePatchWorkbook(basePath, includeRemoteValues: false);
+            WriteSparsePatchWorkbook(localPath, includeRemoteValues: false);
+            WriteSparsePatchWorkbook(remotePath, includeRemoteValues: true);
+            var config = new ExcelSheetReadConfig();
+
+            new WorkbookMergeService().Save(
+                ExcelWorkbook.Create(basePath, config),
+                ExcelWorkbook.Create(localPath, config),
+                ExcelWorkbook.Create(remotePath, config),
+                new Dictionary<MergeRowKey, MergeResolution>(),
+                new Dictionary<MergeCellKey, MergeCellResolution>(),
+                localPath,
+                remotePath,
+                outputPath);
+
+            using (var result = WorkbookFactory.Create(outputPath))
+            {
+                var sheet = result.GetSheet("Sheet1");
+                Assert.AreEqual("remote B", sheet.GetRow(0).GetCell(1).StringCellValue);
+                Assert.AreEqual("remote C", sheet.GetRow(0).GetCell(2).StringCellValue);
+                Assert.AreEqual("remote E", sheet.GetRow(2).GetCell(4).StringCellValue);
+            }
+
+            XNamespace spreadsheet = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            XDocument worksheet;
+            using (var input = new MemoryStream(ReadPackageEntry(outputPath, "xl/worksheets/sheet1.xml")))
+                worksheet = XDocument.Load(input);
+            var rows = worksheet.Descendants(spreadsheet + "sheetData")
+                .Single()
+                .Elements(spreadsheet + "row")
+                .ToList();
+            CollectionAssert.AreEqual(new[] { "1", "3" }, rows.Select(row => (string)row.Attribute("r")!).ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "A1", "B1", "C1", "D1" },
+                rows[0].Elements(spreadsheet + "c").Select(cell => (string)cell.Attribute("r")!).ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "E3" },
+                rows[1].Elements(spreadsheet + "c").Select(cell => (string)cell.Attribute("r")!).ToArray());
         }
         finally
         {
@@ -670,6 +729,23 @@ public sealed class WorkbookMergeServiceTests
         File.Move(temporaryPath, path, true);
     }
 
+    private static void WriteSparsePatchWorkbook(string path, bool includeRemoteValues)
+    {
+        using var workbook = new XSSFWorkbook();
+        var sheet = workbook.CreateSheet("Sheet1");
+        var firstRow = sheet.CreateRow(0);
+        firstRow.CreateCell(0).SetCellValue("common");
+        if (includeRemoteValues)
+        {
+            firstRow.CreateCell(1).SetCellValue("remote B");
+            firstRow.CreateCell(2).SetCellValue("remote C");
+            sheet.CreateRow(2).CreateCell(4).SetCellValue("remote E");
+        }
+        firstRow.CreateCell(3).SetCellValue("tail");
+        using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        workbook.Write(output);
+    }
+
     private static byte[] ReadPackageEntry(string path, string entryName)
     {
         using var archive = ZipFile.OpenRead(path);
@@ -677,6 +753,14 @@ public sealed class WorkbookMergeServiceTests
         using var content = new MemoryStream();
         input.CopyTo(content);
         return content.ToArray();
+    }
+
+    private static void AddPackageEntry(string path, string entryName, byte[] content)
+    {
+        using var archive = ZipFile.Open(path, ZipArchiveMode.Update);
+        archive.GetEntry(entryName)?.Delete();
+        using var output = archive.CreateEntry(entryName, CompressionLevel.Optimal).Open();
+        output.Write(content);
     }
 
     private static void Delete(params string[] paths)

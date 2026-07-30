@@ -64,6 +64,21 @@ public sealed class InlineTextDiffTests
         Assert.IsTrue(result.Remote.All(segment => segment.IsChanged));
     }
 
+    [TestMethod]
+    public void CreateCoalescesLongCharacterRunsWithoutChangingText()
+    {
+        var prefix = new string('a', 4000);
+        var local = prefix + "local";
+        var remote = prefix + "remote";
+
+        var result = InlineTextDiff.Create(local, remote);
+
+        Assert.AreEqual(local, Reconstruct(result.Local));
+        Assert.AreEqual(remote, Reconstruct(result.Remote));
+        Assert.IsTrue(result.Local.Count < 10);
+        Assert.IsTrue(result.Remote.Count < 10);
+    }
+
     private static string Reconstruct(IEnumerable<InlineDiffSegment> segments) =>
         string.Concat(segments.Select(segment => segment.Text));
 }

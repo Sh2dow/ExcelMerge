@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -73,7 +75,7 @@ namespace NetDiff.Test
             var str1 = "q4DU8sbeD4JdhFA4hWShCv3bbtD7djX5SaNnQUHJHdCEJs6X2LJipbEEr7bZZbzcUrpuKpRDKNz92x5P";
             var str2 = "3GKLWNDdCxip8kda2r2MUT45RrHUiESQhmhUZtMcpBGcSwJVS9uq4DWBAQk2zPUJCJabaeWuP5mxyPBz";
 
-            var results = DiffUtil.Diff(str1, str2 );
+            var results = DiffUtil.Diff(str1, str2);
             results = DiffUtil.Order(results, DiffOrderType.GreedyDeleteFirst);
 
             var src = new string(DiffUtil.CreateSrc(results).ToArray());
@@ -179,7 +181,7 @@ namespace NetDiff.Test
             var str1 = "aaa";
             var str2 = "bbb";
 
-            var results = DiffUtil.Diff(str1, str2 );
+            var results = DiffUtil.Diff(str1, str2);
             results = DiffUtil.Order(results, DiffOrderType.LazyDeleteFirst).ToList();
 
             Assert.AreEqual(DiffStatus.Deleted, results.ElementAt(0).Status);
@@ -195,7 +197,7 @@ namespace NetDiff.Test
              + - + - + -
         */
         [TestMethod]
-        public void  DifferentAll_LazyInsertFirst()
+        public void DifferentAll_LazyInsertFirst()
         {
             var str1 = "aaa";
             var str2 = "bbb";
@@ -216,7 +218,7 @@ namespace NetDiff.Test
              = = = +
         */
         [TestMethod]
-        public void  Appended()
+        public void Appended()
         {
             var str1 = "abc";
             var str2 = "abcd";
@@ -469,7 +471,7 @@ namespace NetDiff.Test
             string str1 = "abbbc";
             string str2 = "adbbc";
 
-            var results = DiffUtil.Diff(str1, str2 );
+            var results = DiffUtil.Diff(str1, str2);
             results = DiffUtil.Order(results, DiffOrderType.GreedyDeleteFirst);
 
             Assert.AreEqual(DiffStatus.Equal, results.ElementAt(0).Status);
@@ -634,6 +636,45 @@ namespace NetDiff.Test
             var results = DiffUtil.Diff(str1, str2);
 
             Assert.IsTrue(!results.Any());
+        }
+
+        [TestMethod]
+        public void DiffEnumeratesEachInputOnlyOnce()
+        {
+            var seq1 = new SingleUseEnumerable<int>(new[] { 1, 2, 3 });
+            var seq2 = new SingleUseEnumerable<int>(new[] { 1, 4, 3 });
+
+            var results = DiffUtil.Diff(seq1, seq2).ToList();
+
+            Assert.AreEqual(1, seq1.EnumerationCount);
+            Assert.AreEqual(1, seq2.EnumerationCount);
+            CollectionAssert.AreEqual(new[] { 1, 2, 3 }, DiffUtil.CreateSrc(results).ToArray());
+            CollectionAssert.AreEqual(new[] { 1, 4, 3 }, DiffUtil.CreateDst(results).ToArray());
+        }
+
+        private sealed class SingleUseEnumerable<T> : IEnumerable<T>
+        {
+            private readonly IEnumerable<T> source;
+
+            public int EnumerationCount { get; private set; }
+
+            public SingleUseEnumerable(IEnumerable<T> source)
+            {
+                this.source = source;
+            }
+
+            public IEnumerator<T> GetEnumerator()
+            {
+                EnumerationCount++;
+                if (EnumerationCount > 1)
+                    throw new InvalidOperationException("The sequence was enumerated more than once.");
+                return source.GetEnumerator();
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return GetEnumerator();
+            }
         }
 
         internal class CaseInsensitiveComparer : IEqualityComparer<char>

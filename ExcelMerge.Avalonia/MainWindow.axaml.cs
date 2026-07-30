@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Selection;
 using Avalonia.Controls.Templates;
+using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -19,6 +20,14 @@ public partial class MainWindow : Window
     private const double DefaultCellFontSize = 11;
     private const double DefaultCellWidth = 120;
     private const double DefaultCellHeight = 28;
+    private static readonly IBrush ReadySheetBackground = new SolidColorBrush(Color.Parse("#ECF8F0"));
+    private static readonly IBrush ConflictSheetBackground = new SolidColorBrush(Color.Parse("#FFF0F2"));
+    private static readonly IBrush ReadySheetForeground = new SolidColorBrush(Color.Parse("#176B38"));
+    private static readonly IBrush ConflictSheetForeground = new SolidColorBrush(Color.Parse("#9B2638"));
+    private static readonly IBrush SelectedSheetBorder = new SolidColorBrush(Color.Parse("#2563EB"));
+    private static readonly IBrush ReadySheetBorder = new SolidColorBrush(Color.Parse("#B9DFC7"));
+    private static readonly IBrush ConflictSheetBorder = new SolidColorBrush(Color.Parse("#E8C4CA"));
+    private static readonly IBrush SheetNameForeground = new SolidColorBrush(Color.Parse("#253047"));
     private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".xlsx", ".xls", ".csv", ".tsv",
@@ -31,13 +40,29 @@ public partial class MainWindow : Window
     private ExcelWorkbook? _remoteWorkbook;
     private ExcelSheetDiff? _diff;
     private List<DiffRow> _allRows = new();
+    private List<DiffRow> _changedRows = new();
+    private List<DiffRow> _conflictRows = new();
     private List<DiffRow> _visibleRows = new();
     private List<int> _visibleRowPositions = new();
     private readonly Dictionary<DiffRow, int> _rowPositions = new();
+    private readonly Dictionary<int, DataGridColumn> _localColumnsByIndex = new();
+    private readonly Dictionary<int, DataGridColumn> _remoteColumnsByIndex = new();
     private readonly Dictionary<MergeCellKey, MergeCellResolution> _mergeResolutions = new();
     private readonly Dictionary<MergeRowKey, MergeResolution> _rowResolutions = new();
     private IReadOnlyDictionary<string, IReadOnlyList<MergeCellKey>> _workbookConflicts =
         new Dictionary<string, IReadOnlyList<MergeCellKey>>(StringComparer.Ordinal);
+    private readonly List<MergeCellKey> _workbookConflictTargets = new();
+    private readonly Dictionary<MergeCellKey, int> _workbookConflictPositions = new();
+    private readonly Dictionary<MergeCellKey, bool> _workbookConflictResolutionStates = new();
+    private readonly Dictionary<string, int> _resolvedConflictCountsBySheet = new(StringComparer.Ordinal);
+    private int _workbookResolvedConflictCount;
+    private readonly List<ConflictTarget> _conflictTargets = new();
+    private readonly Dictionary<DiffCell, int> _conflictPositions = new();
+    private readonly Dictionary<MergeCellKey, ConflictTarget> _sheetConflictTargets = new();
+    private readonly Dictionary<string, SheetConflictCard> _sheetConflictCards = new(StringComparer.Ordinal);
+    private string? _cachedDiffLocalSheetName;
+    private string? _cachedDiffRemoteSheetName;
+    private ExcelSheetDiff? _cachedSheetDiff;
     private bool _workbookConflictsLoaded;
     private int _changeIndex = -1;
     private int _conflictIndex = -1;
@@ -76,6 +101,13 @@ public partial class MainWindow : Window
     }
 
     private readonly record struct ConflictTarget(DiffRow Row, DiffCell Cell);
+
+    private sealed record WorkbookConflictScan(
+        IReadOnlyDictionary<string, IReadOnlyList<MergeCellKey>> Conflicts,
+        string? CachedSheetName,
+        ExcelSheetDiff? CachedDiff);
+
+    private sealed record SheetConflictCard(Button Button, TextBlock Status);
 
     public MainWindow() : this(Array.Empty<string>())
     {
@@ -373,17 +405,6 @@ public partial class MainWindow : Window
         await EnsureWorkbookLoaded(WorkbookInput.Remote, cancellationToken);
         var localWorkbook = _localWorkbook ?? throw new InvalidOperationException("The LOCAL workbook could not be loaded.");
         var remoteWorkbook = _remoteWorkbook ?? throw new InvalidOperationException("The REMOTE workbook could not be loaded.");
-        if (_viewModel.IsMergeMode && !_workbookConflictsLoaded)
-        {
-            var baseWorkbook = _baseWorkbook
-                ?? throw new InvalidOperationException("The BASE workbook could not be loaded.");
-            Progress.Text = "Scanning sheet conflicts...";
-            _workbookConflicts = await Task.Run(
-                () => FindWorkbookConflicts(baseWorkbook, localWorkbook, remoteWorkbook),
-                cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            _workbookConflictsLoaded = true;
-        }
         var localChoice = LocalSheet.SelectedItem as SheetChoice
             ?? throw new InvalidOperationException("Select a LOCAL sheet.");
         var remoteChoice = RemoteSheet.SelectedItem as SheetChoice
@@ -394,6 +415,26 @@ public partial class MainWindow : Window
             && (_baseWorkbook?.Sheets.Count > 1 || localWorkbook.Sheets.Count > 1 || remoteWorkbook.Sheets.Count > 1)
             && !string.Equals(localName, remoteName, StringComparison.Ordinal))
             throw new WorkbookMergeException("Select the same sheet name in LOCAL and REMOTE before merging.");
+        if (_viewModel.IsMergeMode && !_workbookConflictsLoaded)
+        {
+            var baseWorkbook = _baseWorkbook
+                ?? throw new InvalidOperationException("The BASE workbook could not be loaded.");
+            Progress.Text = "Scanning sheet conflicts...";
+            var scan = await Task.Run(
+                () => ScanWorkbookConflicts(
+                    baseWorkbook,
+                    localWorkbook,
+                    remoteWorkbook,
+                    string.Equals(localName, remoteName, StringComparison.Ordinal) ? localName : null),
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            _workbookConflicts = scan.Conflicts;
+            _cachedDiffLocalSheetName = scan.CachedSheetName;
+            _cachedDiffRemoteSheetName = scan.CachedSheetName;
+            _cachedSheetDiff = scan.CachedDiff;
+            RebuildWorkbookConflictTargets();
+            _workbookConflictsLoaded = true;
+        }
         var allowSoleSheetFallback = _baseWorkbook?.Sheets.Count == 1
             && localWorkbook.Sheets.Count == 1
             && remoteWorkbook.Sheets.Count == 1;
@@ -403,9 +444,22 @@ public partial class MainWindow : Window
         var localSheet = localChoice.Exists ? localWorkbook.Sheets[localName] : new ExcelSheet();
         var remoteSheet = remoteChoice.Exists ? remoteWorkbook.Sheets[remoteName] : new ExcelSheet();
 
-        var diff = await Task.Run(
-            () => ExcelSheet.Diff(localSheet, remoteSheet, new ExcelSheetDiffConfig()),
-            cancellationToken);
+        ExcelSheetDiff diff;
+        if (_cachedSheetDiff != null
+            && string.Equals(_cachedDiffLocalSheetName, localName, StringComparison.Ordinal)
+            && string.Equals(_cachedDiffRemoteSheetName, remoteName, StringComparison.Ordinal))
+        {
+            diff = _cachedSheetDiff;
+        }
+        else
+        {
+            diff = await Task.Run(
+                () => ExcelSheet.Diff(localSheet, remoteSheet, new ExcelSheetDiffConfig()),
+                cancellationToken);
+            _cachedDiffLocalSheetName = localName;
+            _cachedDiffRemoteSheetName = remoteName;
+            _cachedSheetDiff = diff;
+        }
         cancellationToken.ThrowIfCancellationRequested();
         _currentMergeSheetName = localName;
         _diff = diff;
@@ -432,12 +486,28 @@ public partial class MainWindow : Window
     {
         _diff = null;
         _allRows.Clear();
+        _changedRows.Clear();
+        _conflictRows.Clear();
         _visibleRows.Clear();
         _visibleRowPositions.Clear();
         _rowPositions.Clear();
+        _localColumnsByIndex.Clear();
+        _remoteColumnsByIndex.Clear();
         _mergeResolutions.Clear();
         _rowResolutions.Clear();
         _workbookConflicts = new Dictionary<string, IReadOnlyList<MergeCellKey>>(StringComparer.Ordinal);
+        _workbookConflictTargets.Clear();
+        _workbookConflictPositions.Clear();
+        _workbookConflictResolutionStates.Clear();
+        _resolvedConflictCountsBySheet.Clear();
+        _workbookResolvedConflictCount = 0;
+        _conflictTargets.Clear();
+        _conflictPositions.Clear();
+        _sheetConflictTargets.Clear();
+        _sheetConflictCards.Clear();
+        _cachedDiffLocalSheetName = null;
+        _cachedDiffRemoteSheetName = null;
+        _cachedSheetDiff = null;
         _workbookConflictsLoaded = false;
         _currentMergeSheetName = null;
         _columnWidthSynchronizer?.Dispose();
@@ -495,11 +565,21 @@ public partial class MainWindow : Window
         ExcelWorkbook localWorkbook,
         ExcelWorkbook remoteWorkbook)
     {
+        return ScanWorkbookConflicts(baseWorkbook, localWorkbook, remoteWorkbook, null).Conflicts;
+    }
+
+    private static WorkbookConflictScan ScanWorkbookConflicts(
+        ExcelWorkbook baseWorkbook,
+        ExcelWorkbook localWorkbook,
+        ExcelWorkbook remoteWorkbook,
+        string? cachedSheetName)
+    {
         var names = localWorkbook.Sheets.Keys
             .Concat(remoteWorkbook.Sheets.Keys)
             .Distinct(StringComparer.Ordinal)
             .ToList();
         var result = new Dictionary<string, IReadOnlyList<MergeCellKey>>(StringComparer.Ordinal);
+        ExcelSheetDiff? cachedDiff = null;
         foreach (var name in names)
         {
             var localSheet = localWorkbook.Sheets.TryGetValue(name, out var local)
@@ -510,13 +590,74 @@ public partial class MainWindow : Window
                 : new ExcelSheet();
             var baseValues = CreateBaseValueMap(baseWorkbook, name, name, allowSoleSheetFallback: false);
             var diff = ExcelSheet.Diff(localSheet, remoteSheet, new ExcelSheetDiffConfig());
-            result[name] = diff.Rows.Values
-                .Select(row => new DiffRow(row, baseValues))
-                .SelectMany(row => row.ConflictCells)
-                .Select(cell => new MergeCellKey(name, cell.OriginalRowIndex, cell.OriginalColumnIndex))
-                .ToList();
+            if (string.Equals(name, cachedSheetName, StringComparison.Ordinal))
+                cachedDiff = diff;
+
+            var conflicts = new List<MergeCellKey>();
+            foreach (var cell in diff.Rows.Values.SelectMany(row => row.Cells.Values))
+            {
+                var source = cell.Status == ExcelCellStatus.Added ? cell.DstCell : cell.SrcCell;
+                baseValues.TryGetValue((source.OriginalRowIndex, source.OriginalColumnIndex), out var baseValue);
+                baseValue ??= string.Empty;
+                if (!string.Equals(cell.SrcCell.Value, cell.DstCell.Value, StringComparison.Ordinal)
+                    && !string.Equals(cell.SrcCell.Value, baseValue, StringComparison.Ordinal)
+                    && !string.Equals(cell.DstCell.Value, baseValue, StringComparison.Ordinal))
+                {
+                    conflicts.Add(new MergeCellKey(
+                        name,
+                        source.OriginalRowIndex,
+                        source.OriginalColumnIndex));
+                }
+            }
+            result[name] = conflicts;
         }
-        return result;
+        return new WorkbookConflictScan(result, cachedSheetName, cachedDiff);
+    }
+
+    private void RebuildWorkbookConflictTargets()
+    {
+        _workbookConflictTargets.Clear();
+        _workbookConflictPositions.Clear();
+        _workbookConflictResolutionStates.Clear();
+        _resolvedConflictCountsBySheet.Clear();
+        _workbookResolvedConflictCount = 0;
+        foreach (var key in _workbookConflicts.Values.SelectMany(conflicts => conflicts))
+        {
+            if (!_workbookConflictPositions.ContainsKey(key))
+                _workbookConflictPositions[key] = _workbookConflictTargets.Count;
+            _workbookConflictTargets.Add(key);
+            var resolved = IsConflictResolved(key);
+            _workbookConflictResolutionStates[key] = resolved;
+            if (resolved)
+            {
+                _workbookResolvedConflictCount++;
+                _resolvedConflictCountsBySheet[key.SheetName] =
+                    _resolvedConflictCountsBySheet.GetValueOrDefault(key.SheetName) + 1;
+            }
+        }
+    }
+
+    private void RefreshConflictResolutionProgress(DiffRow row)
+    {
+        if (_currentMergeSheetName == null)
+            return;
+        foreach (var cell in row.ConflictCells)
+        {
+            var key = new MergeCellKey(
+                _currentMergeSheetName,
+                cell.OriginalRowIndex,
+                cell.OriginalColumnIndex);
+            if (!_workbookConflictResolutionStates.TryGetValue(key, out var wasResolved))
+                continue;
+            var isResolved = IsConflictResolved(key);
+            if (wasResolved == isResolved)
+                continue;
+            _workbookConflictResolutionStates[key] = isResolved;
+            var change = isResolved ? 1 : -1;
+            _workbookResolvedConflictCount += change;
+            _resolvedConflictCountsBySheet[key.SheetName] =
+                _resolvedConflictCountsBySheet.GetValueOrDefault(key.SheetName) + change;
+        }
     }
 
     private async Task EnsureWorkbookLoaded(WorkbookInput input, CancellationToken cancellationToken)
@@ -743,6 +884,8 @@ public partial class MainWindow : Window
         _currentConflictCell = null;
         _conflictIndex = -1;
         _allRows = _diff!.Rows.Values.Select(row => new DiffRow(row, baseValues)).ToList();
+        _changedRows = _allRows.Where(row => row.IsChanged).ToList();
+        _conflictRows = _allRows.Where(row => row.HasConflict).ToList();
         _rowPositions.Clear();
         for (var index = 0; index < _allRows.Count; index++)
             _rowPositions[_allRows[index]] = index;
@@ -765,17 +908,42 @@ public partial class MainWindow : Window
                 }
             }
         }
+        _conflictTargets.Clear();
+        _conflictPositions.Clear();
+        _sheetConflictTargets.Clear();
+        foreach (var row in _conflictRows)
+        {
+            foreach (var cell in row.ConflictCells)
+            {
+                var target = new ConflictTarget(row, cell);
+                _conflictPositions[cell] = _conflictTargets.Count;
+                _conflictTargets.Add(target);
+                if (_currentMergeSheetName != null)
+                {
+                    _sheetConflictTargets[new MergeCellKey(
+                        _currentMergeSheetName,
+                        cell.OriginalRowIndex,
+                        cell.OriginalColumnIndex)] = target;
+                }
+            }
+        }
         var columns = _allRows.SelectMany(row => row.Cells).Select(cell => cell.ColumnIndex).Distinct().OrderBy(index => index).ToList();
         _columnWidthSynchronizer?.Dispose();
         _columnWidthSynchronizer = null;
         LocalGrid.Columns.Clear();
         RemoteGrid.Columns.Clear();
+        _localColumnsByIndex.Clear();
+        _remoteColumnsByIndex.Clear();
         LocalGrid.Columns.Add(RowNumberColumn());
         RemoteGrid.Columns.Add(RowNumberColumn());
         foreach (var column in columns)
         {
-            LocalGrid.Columns.Add(CellColumn(column, false));
-            RemoteGrid.Columns.Add(CellColumn(column, true));
+            var localColumn = CellColumn(column, false);
+            var remoteColumn = CellColumn(column, true);
+            _localColumnsByIndex[column] = localColumn;
+            _remoteColumnsByIndex[column] = remoteColumn;
+            LocalGrid.Columns.Add(localColumn);
+            RemoteGrid.Columns.Add(remoteColumn);
         }
         _columnWidthSynchronizer = new ColumnWidthSynchronizer(LocalGrid, RemoteGrid);
         ApplyFilter();
@@ -798,23 +966,40 @@ public partial class MainWindow : Window
             Width = new DataGridLength(CellWidth(_cellFontSize)),
             CellTemplate = new FuncDataTemplate<DiffRow>((row, _) =>
             {
-                var cell = row.Cells.FirstOrDefault(candidate => candidate.ColumnIndex == index);
-                var value = new TextBlock { Text = cell?.Value(remote) ?? string.Empty };
+                var cell = row.GetCell(index);
+                var value = new TextBlock();
+                if (cell != null)
+                {
+                    value.Bind(
+                        TextBlock.TextProperty,
+                        new Binding(remote ? nameof(DiffCell.RemoteDisplayValue) : nameof(DiffCell.LocalDisplayValue))
+                        {
+                            Source = cell,
+                        });
+                }
                 value.Bind(
                     TextBlock.FontSizeProperty,
                     CellFontSizeSlider.GetObservable(RangeBase.ValueProperty));
                 var border = new Border
                 {
                     Padding = new Thickness(7, 3),
-                    Background = cell?.Brush(remote),
                     Child = value,
                 };
+                if (cell != null)
+                {
+                    border.Bind(
+                        Border.BackgroundProperty,
+                        new Binding(remote ? nameof(DiffCell.RemoteBackground) : nameof(DiffCell.LocalBackground))
+                        {
+                            Source = cell,
+                        });
+                }
                 if (cell?.IsConflict == true)
                 {
                     border.Cursor = new Cursor(StandardCursorType.Hand);
-                    ToolTip.SetTip(border, cell.Resolution == MergeResolution.Unresolved
-                        ? "Click to resolve this conflict"
-                        : $"Resolved: {cell.Resolution}. Click to change.");
+                    border.Bind(
+                        ToolTip.TipProperty,
+                        new Binding(nameof(DiffCell.ResolutionToolTip)) { Source = cell });
                     border.PointerPressed += (_, e) =>
                     {
                         e.Handled = true;
@@ -842,8 +1027,7 @@ public partial class MainWindow : Window
 
     private void ApplyFilter()
     {
-        var rows = HideUnchanged.IsChecked == true ? _allRows.Where(row => row.IsChanged) : _allRows;
-        _visibleRows = rows.ToList();
+        _visibleRows = HideUnchanged.IsChecked == true ? _changedRows.ToList() : _allRows.ToList();
         _visibleRowPositions = _visibleRows.Select(row => _rowPositions[row]).ToList();
         LocalGrid.ItemsSource = _visibleRows;
         RemoteGrid.ItemsSource = _visibleRows;
@@ -961,12 +1145,11 @@ public partial class MainWindow : Window
 
     private void Navigate(int direction)
     {
-        var changed = _allRows.Where(row => row.IsChanged).ToList();
-        if (changed.Count == 0)
+        if (_changedRows.Count == 0)
             return;
 
-        _changeIndex = (_changeIndex + direction + changed.Count) % changed.Count;
-        var target = changed[_changeIndex];
+        _changeIndex = (_changeIndex + direction + _changedRows.Count) % _changedRows.Count;
+        var target = _changedRows[_changeIndex];
         _synchronizingSelection = true;
         LocalGrid.SelectedItem = target;
         RemoteGrid.SelectedItem = target;
@@ -993,8 +1176,7 @@ public partial class MainWindow : Window
     {
         if (_workbookConflictsLoaded)
         {
-            var workbookTargets = _workbookConflicts.Values.SelectMany(conflicts => conflicts).ToList();
-            if (workbookTargets.Count == 0)
+            if (_workbookConflictTargets.Count == 0)
                 return;
             var currentKey = _currentMergeSheetName != null && _currentConflictCell != null
                 ? new MergeCellKey(
@@ -1002,46 +1184,33 @@ public partial class MainWindow : Window
                     _currentConflictCell.OriginalRowIndex,
                     _currentConflictCell.OriginalColumnIndex)
                 : (MergeCellKey?)null;
-            var currentIndex = currentKey.HasValue ? workbookTargets.IndexOf(currentKey.Value) : -1;
+            var currentIndex = currentKey.HasValue
+                && _workbookConflictPositions.TryGetValue(currentKey.Value, out var position)
+                    ? position
+                    : -1;
             var targetIndex = currentIndex < 0
-                ? direction >= 0 ? 0 : workbookTargets.Count - 1
-                : (currentIndex + direction + workbookTargets.Count) % workbookTargets.Count;
-            var workbookTarget = workbookTargets[targetIndex];
+                ? direction >= 0 ? 0 : _workbookConflictTargets.Count - 1
+                : (currentIndex + direction + _workbookConflictTargets.Count) % _workbookConflictTargets.Count;
+            var workbookTarget = _workbookConflictTargets[targetIndex];
             if (!string.Equals(_currentMergeSheetName, workbookTarget.SheetName, StringComparison.Ordinal))
             {
                 if (!await SelectSheet(workbookTarget.SheetName))
                     return;
             }
 
-            var row = _allRows.FirstOrDefault(candidate => candidate.ConflictCells.Any(cell =>
-                cell.OriginalRowIndex == workbookTarget.RowIndex
-                && cell.OriginalColumnIndex == workbookTarget.ColumnIndex));
-            var cell = row?.ConflictCells.FirstOrDefault(candidate =>
-                candidate.OriginalRowIndex == workbookTarget.RowIndex
-                && candidate.OriginalColumnIndex == workbookTarget.ColumnIndex);
-            if (row != null && cell != null)
-                SelectConflict(row, cell);
+            if (_sheetConflictTargets.TryGetValue(workbookTarget, out var workbookConflict))
+                SelectConflict(workbookConflict.Row, workbookConflict.Cell);
             return;
         }
 
-        var conflicts = ConflictTargets();
-        if (conflicts.Count == 0)
+        if (_conflictTargets.Count == 0)
             return;
 
         _conflictIndex = _conflictIndex < 0
-            ? direction >= 0 ? 0 : conflicts.Count - 1
-            : (_conflictIndex + direction + conflicts.Count) % conflicts.Count;
-        var target = conflicts[_conflictIndex];
+            ? direction >= 0 ? 0 : _conflictTargets.Count - 1
+            : (_conflictIndex + direction + _conflictTargets.Count) % _conflictTargets.Count;
+        var target = _conflictTargets[_conflictIndex];
         SelectConflict(target.Row, target.Cell);
-    }
-
-    private List<ConflictTarget> ConflictTargets()
-    {
-        return _allRows
-            .SelectMany(row => row.ConflictCells
-                .OrderBy(cell => cell.ColumnIndex)
-                .Select(cell => new ConflictTarget(row, cell)))
-            .ToList();
     }
 
     private void SelectConflict(DiffRow row, DiffCell? cell = null)
@@ -1054,19 +1223,21 @@ public partial class MainWindow : Window
         SelectGridCell(LocalGrid, row, cell);
         SelectGridCell(RemoteGrid, row, cell);
         _synchronizingSelection = false;
-        var targets = ConflictTargets();
-        _conflictIndex = targets.FindIndex(target =>
-            ReferenceEquals(target.Row, row) && ReferenceEquals(target.Cell, cell));
+        _conflictIndex = cell != null && _conflictPositions.TryGetValue(cell, out var position)
+            ? position
+            : -1;
         UpdateConflictPanel(row);
     }
 
-    private static void SelectGridCell(DataGrid grid, DiffRow row, DiffCell? cell)
+    private void SelectGridCell(DataGrid grid, DiffRow row, DiffCell? cell)
     {
         grid.SelectedItem = row;
-        var column = cell == null
-            ? null
-            : grid.Columns.FirstOrDefault(candidate =>
-                string.Equals(candidate.Header?.ToString(), ColumnName(cell.ColumnIndex), StringComparison.Ordinal));
+        DataGridColumn? column = null;
+        if (cell != null)
+        {
+            var columns = ReferenceEquals(grid, LocalGrid) ? _localColumnsByIndex : _remoteColumnsByIndex;
+            columns.TryGetValue(cell.ColumnIndex, out column);
+        }
         if (column != null)
             grid.CurrentColumn = column;
         grid.ScrollIntoView(row, column);
@@ -1088,7 +1259,7 @@ public partial class MainWindow : Window
         CustomChoice.IsEnabled = true;
         RowCustomEditor.IsVisible = false;
         RowColumnSelectionBorder.IsVisible = false;
-        var inlineDiff = InlineTextDiff.Create(cell.LocalValue, cell.RemoteValue);
+        var inlineDiff = cell.InlineDiff;
         InlineTextDiff.Apply(ConflictLocalValue, inlineDiff.Local);
         InlineTextDiff.Apply(ConflictRemoteValue, inlineDiff.Remote);
         ConflictBaseValue.Text = cell.BaseValue;
@@ -1150,12 +1321,14 @@ public partial class MainWindow : Window
         RowResultCells.Children.Clear();
         RowSecondResultCells.Children.Clear();
         _rowResultValueBoxes.Clear();
-        foreach (var cell in row.Cells.OrderBy(cell => cell.ColumnIndex))
+        foreach (var cell in row.Cells)
         {
-            var inlineDiff = InlineTextDiff.Create(cell.LocalValue, cell.RemoteValue);
+            var inlineDiff = string.Equals(cell.LocalValue, cell.RemoteValue, StringComparison.Ordinal)
+                ? null
+                : cell.InlineDiff;
             RowBaseCells.Children.Add(RowCellBox(cell, cell.BaseValue, "#F8FAFC"));
-            RowLocalCells.Children.Add(RowCellBox(cell, cell.LocalValue, "#EAF7EE", inlineDiff.Local));
-            RowRemoteCells.Children.Add(RowCellBox(cell, cell.RemoteValue, "#FCEDEF", inlineDiff.Remote));
+            RowLocalCells.Children.Add(RowCellBox(cell, cell.LocalValue, "#EAF7EE", inlineDiff?.Local));
+            RowRemoteCells.Children.Add(RowCellBox(cell, cell.RemoteValue, "#FCEDEF", inlineDiff?.Remote));
         }
     }
 
@@ -1252,7 +1425,7 @@ public partial class MainWindow : Window
         RowResultLabel.Text = keepBoth ? "RESULT 1 · LOCAL" : "RESULT";
         RowSecondResultLabel.IsVisible = keepBoth;
         RowSecondResultCells.IsVisible = keepBoth;
-        foreach (var cell in _currentConflictRow.Cells.OrderBy(cell => cell.ColumnIndex))
+        foreach (var cell in _currentConflictRow.Cells)
         {
             var value = UseRemoteChoice.IsChecked == true
                 ? cell.RemoteValue
@@ -1284,13 +1457,16 @@ public partial class MainWindow : Window
             return;
 
         _selectedRowCustomCell = cell;
-        var index = _currentConflictRow.Cells.OrderBy(candidate => candidate.ColumnIndex).ToList().IndexOf(cell);
+        var index = 0;
+        while (index < _currentConflictRow.Cells.Count
+            && !ReferenceEquals(_currentConflictRow.Cells[index], cell))
+            index++;
         RowColumnSelectionBorder.Margin = new Thickness(index * 146 - 5, -5, -5, -5);
         RowColumnSelectionBorder.IsVisible = true;
         RowCustomEditor.IsVisible = true;
         RowCustomColumnTitle.Text = $"Edit conflict · Column {ColumnName(cell.OriginalColumnIndex)}";
         RowCustomBaseValue.Text = cell.BaseValue;
-        var inlineDiff = InlineTextDiff.Create(cell.LocalValue, cell.RemoteValue);
+        var inlineDiff = cell.InlineDiff;
         InlineTextDiff.Apply(RowCustomLocalValue, inlineDiff.Local);
         InlineTextDiff.Apply(RowCustomRemoteValue, inlineDiff.Remote);
         _updatingRowCustomEditor = true;
@@ -1416,7 +1592,9 @@ public partial class MainWindow : Window
         _selectedRowCustomCell = null;
         _rowCustomDrafts.Clear();
         _rowResultValueBoxes.Clear();
-        ApplyFilter();
+        RefreshConflictResolutionProgress(row);
+        if (_rowPositions.TryGetValue(row, out var rowPosition))
+            SheetOverviewMap.UpdateRow(rowPosition, row);
         SelectConflict(row, _isRowConflictDialog ? null : cell);
     }
 
@@ -1569,11 +1747,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        var conflicts = _allRows.Where(row => row.HasConflict).ToList();
-        var conflictCells = conflicts.SelectMany(row => row.ConflictCells).ToList();
-        var resolvedCount = conflictCells.Count(cell => cell.Resolution != MergeResolution.Unresolved);
-        var currentSheetRemaining = conflictCells.Count - resolvedCount;
-        var currentSheetReady = resolvedCount == conflictCells.Count;
+        var resolvedCount = _workbookConflictsLoaded && _currentMergeSheetName != null
+            ? _resolvedConflictCountsBySheet.GetValueOrDefault(_currentMergeSheetName)
+            : _conflictTargets.Count(target => target.Cell.Resolution != MergeResolution.Unresolved);
+        var currentSheetRemaining = _conflictTargets.Count - resolvedCount;
+        var currentSheetReady = resolvedCount == _conflictTargets.Count;
         var (workbookTotal, workbookResolved) = GetWorkbookConflictProgress();
         var workbookRemaining = Math.Max(0, workbookTotal - workbookResolved);
         var workbookReady = _workbookConflictsLoaded && workbookResolved == workbookTotal;
@@ -1584,8 +1762,8 @@ public partial class MainWindow : Window
                 : workbookRemaining == 0 ? "ALL RESOLVED" : $"{workbookRemaining} LEFT";
         SetConflictPanelReady(workbookReady);
         SaveResultButton.IsEnabled = workbookReady;
-        UpdateWorkbookConflictOverview();
-        var hasConflicts = conflictCells.Count > 0;
+        UpdateWorkbookConflictOverview((workbookTotal, workbookResolved));
+        var hasConflicts = _conflictTargets.Count > 0;
         var hasNavigableConflicts = _workbookConflictsLoaded ? workbookTotal > 0 : hasConflicts;
         PreviousConflictButton.IsEnabled = hasNavigableConflicts;
         NextConflictButton.IsEnabled = hasNavigableConflicts;
@@ -1609,14 +1787,14 @@ public partial class MainWindow : Window
         ConflictSummary.Text = workbookReady
             ? $"All {workbookTotal} workbook conflicts resolved · Ready to merge"
             : currentSheetReady
-                ? $"All {conflictCells.Count} conflicts in {_currentMergeSheetName} resolved · {workbookRemaining} unresolved in other sheets"
+                ? $"All {_conflictTargets.Count} conflicts in {_currentMergeSheetName} resolved · {workbookRemaining} unresolved in other sheets"
                 : $"{currentSheetRemaining} unresolved in {_currentMergeSheetName} · {workbookRemaining} remaining in workbook";
 
         var row = preferredRow?.HasConflict == true
             ? preferredRow
-            : _currentConflictRow?.HasConflict == true && conflicts.Contains(_currentConflictRow)
+            : _currentConflictRow?.HasConflict == true && _conflictRows.Contains(_currentConflictRow)
                 ? _currentConflictRow
-                : conflicts[0];
+                : _conflictRows[0];
         var cell = ReferenceEquals(row, _currentConflictRow)
                 && _currentConflictCell != null
                 && row.ConflictCells.Contains(_currentConflictCell)
@@ -1625,14 +1803,12 @@ public partial class MainWindow : Window
                 ?? row.ConflictCells[0];
         _currentConflictRow = row;
         _currentConflictCell = cell;
-        _conflictIndex = ConflictTargets().FindIndex(target =>
-            ReferenceEquals(target.Row, row) && ReferenceEquals(target.Cell, cell));
+        _conflictIndex = _conflictPositions.TryGetValue(cell, out var position) ? position : -1;
     }
 
     private (int Total, int Resolved) GetWorkbookConflictProgress()
     {
-        var keys = _workbookConflicts.Values.SelectMany(conflicts => conflicts).ToList();
-        return (keys.Count, keys.Count(IsConflictResolved));
+        return (_workbookConflictTargets.Count, _workbookResolvedConflictCount);
     }
 
     private bool IsConflictResolved(MergeCellKey key)
@@ -1698,42 +1874,67 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateWorkbookConflictOverview()
+    private void UpdateWorkbookConflictOverview((int Total, int Resolved)? progress = null)
     {
-        SheetConflictItems.Children.Clear();
         if (!_workbookConflictsLoaded)
         {
+            SheetConflictItems.Children.Clear();
+            _sheetConflictCards.Clear();
             WorkbookConflictSummary.Text = "Compare files to scan all sheets";
             return;
         }
+        if (_sheetConflictCards.Count != _workbookConflicts.Count
+            || _workbookConflicts.Keys.Any(name => !_sheetConflictCards.ContainsKey(name)))
+            RebuildWorkbookConflictCards();
 
-        var (workbookTotal, workbookResolved) = GetWorkbookConflictProgress();
+        var (workbookTotal, workbookResolved) = progress ?? GetWorkbookConflictProgress();
         var readySheets = 0;
         foreach (var (name, keys) in _workbookConflicts)
         {
-            var resolved = keys.Count(IsConflictResolved);
+            var resolved = _resolvedConflictCountsBySheet.GetValueOrDefault(name);
             var unresolved = keys.Count - resolved;
             var ready = unresolved == 0;
             if (ready)
                 readySheets++;
 
-            var background = new SolidColorBrush(Color.Parse(ready ? "#ECF8F0" : "#FFF0F2"));
-            var statusColor = new SolidColorBrush(Color.Parse(ready ? "#176B38" : "#9B2638"));
             var selected = string.Equals(name, _currentMergeSheetName, StringComparison.Ordinal);
-            var border = new SolidColorBrush(Color.Parse(selected
-                ? "#2563EB"
-                : ready ? "#B9DFC7" : "#E8C4CA"));
             var status = keys.Count == 0
                 ? "NO CONFLICTS"
                 : ready ? $"{keys.Count} RESOLVED" : $"{unresolved} UNRESOLVED";
+            var card = _sheetConflictCards[name];
+            card.Button.Background = ready ? ReadySheetBackground : ConflictSheetBackground;
+            card.Button.BorderBrush = selected
+                ? SelectedSheetBorder
+                : ready ? ReadySheetBorder : ConflictSheetBorder;
+            card.Button.BorderThickness = new Thickness(selected ? 2 : 1);
+            card.Status.Text = status;
+            card.Status.Foreground = ready ? ReadySheetForeground : ConflictSheetForeground;
+            ToolTip.SetTip(card.Button, ready
+                ? $"{name} is ready"
+                : $"Open {name} to resolve {unresolved} conflicts");
+        }
+
+        WorkbookConflictSummary.Text = workbookTotal == 0
+            ? $"{_workbookConflicts.Count} sheets · No conflicts"
+            : $"{readySheets}/{_workbookConflicts.Count} sheets ready · {workbookResolved}/{workbookTotal} conflicts resolved";
+    }
+
+    private void RebuildWorkbookConflictCards()
+    {
+        SheetConflictItems.Children.Clear();
+        _sheetConflictCards.Clear();
+        foreach (var name in _workbookConflicts.Keys)
+        {
+            var status = new TextBlock
+            {
+                FontSize = 11,
+                FontWeight = FontWeight.Bold,
+            };
             var button = new Button
             {
                 MinWidth = 150,
                 Padding = new Thickness(12, 7),
                 HorizontalContentAlignment = HorizontalAlignment.Left,
-                Background = background,
-                BorderBrush = border,
-                BorderThickness = new Thickness(selected ? 2 : 1),
                 Content = new StackPanel
                 {
                     Spacing = 1,
@@ -1743,28 +1944,17 @@ public partial class MainWindow : Window
                         {
                             Text = name,
                             FontWeight = FontWeight.SemiBold,
-                            Foreground = new SolidColorBrush(Color.Parse("#253047")),
+                            Foreground = SheetNameForeground,
                         },
-                        new TextBlock
-                        {
-                            Text = status,
-                            FontSize = 11,
-                            FontWeight = FontWeight.Bold,
-                            Foreground = statusColor,
-                        },
+                        status,
                     },
                 },
             };
-            ToolTip.SetTip(button, ready
-                ? $"{name} is ready"
-                : $"Open {name} to resolve {unresolved} conflicts");
-            button.Click += async (_, _) => await SelectSheet(name);
+            var sheetName = name;
+            button.Click += async (_, _) => await SelectSheet(sheetName);
+            _sheetConflictCards.Add(name, new SheetConflictCard(button, status));
             SheetConflictItems.Children.Add(button);
         }
-
-        WorkbookConflictSummary.Text = workbookTotal == 0
-            ? $"{_workbookConflicts.Count} sheets · No conflicts"
-            : $"{readySheets}/{_workbookConflicts.Count} sheets ready · {workbookResolved}/{workbookTotal} conflicts resolved";
     }
 
     private void SetConflictPanelReady(bool ready)

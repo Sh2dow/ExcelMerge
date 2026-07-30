@@ -72,26 +72,26 @@ namespace NetDiff
         private T[] seq2;
         private DiffOption<T> option;
         private List<Node> heads;
+        private List<Node> nextHeads;
         private Point endpoint;
         private int[] farthestPoints;
         private int offset;
         private bool isEnd;
 
-        public EditGraph(
-            IEnumerable<T> seq1, IEnumerable<T> seq2)
+        public EditGraph(T[] seq1, T[] seq2)
         {
-            this.seq1 = seq1.ToArray();
-            this.seq2 = seq2.ToArray();
+            this.seq1 = seq1;
+            this.seq2 = seq2;
             endpoint = new Point(this.seq1.Length, this.seq2.Length);
             offset = this.seq2.Length;
         }
 
         public List<Point> CalculatePath(DiffOption<T> option)
         {
-            if (!seq1.Any())
+            if (seq1.Length == 0)
                 return Enumerable.Range(0, seq2.Length + 1).Select(i => new Point(0, i)).ToList();
 
-            if (!seq2.Any())
+            if (seq2.Length == 0)
                 return Enumerable.Range(0, seq1.Length + 1).Select(i => new Point(i, 0)).ToList();
 
             this.option = option;
@@ -107,6 +107,7 @@ namespace NetDiff
         {
             farthestPoints = new int[seq1.Length + seq2.Length + 1];
             heads = new List<Node>();
+            nextHeads = new List<Node>();
         }
 
         private void BeginCalculatePath()
@@ -122,7 +123,15 @@ namespace NetDiff
         {
             var wayponit = new List<Point>();
 
-            var current = heads.Where(h => h.Point.Equals(endpoint)).FirstOrDefault();
+            Node current = null;
+            foreach (var head in heads)
+            {
+                if (head.Point.Equals(endpoint))
+                {
+                    current = head;
+                    break;
+                }
+            }
             while (current != null)
             {
                 wayponit.Add(current.Point);
@@ -155,42 +164,41 @@ namespace NetDiff
                 heads.Add(tmp);
             }
 
-            var updated = new List<Node>();
+            nextHeads.Clear();
+            var requiredCapacity = heads.Count <= int.MaxValue / 2 ? heads.Count * 2 : int.MaxValue;
+            if (nextHeads.Capacity < requiredCapacity)
+                nextHeads.Capacity = requiredCapacity;
 
             foreach (var head in heads)
             {
                 Node rightHead;
                 if (TryCreateHead(head, Direction.Right, out rightHead))
                 {
-                    updated.Add(rightHead);
+                    nextHeads.Add(rightHead);
                 }
 
                 Node bottomHead;
                 if (TryCreateHead(head, Direction.Bottom, out bottomHead))
                 {
-                    updated.Add(bottomHead);
+                    nextHeads.Add(bottomHead);
                 }
             }
 
-            heads = updated;
+            var previousHeads = heads;
+            heads = nextHeads;
+            nextHeads = previousHeads;
 
             Snake();
         }
 
         private void Snake()
         {
-            var tmp = new List<Node>();
-            foreach (var h in heads)
+            for (var index = 0; index < heads.Count; index++)
             {
-                var newHead = Snake(h);
-
+                var newHead = Snake(heads[index]);
                 if (newHead != null)
-                    tmp.Add(newHead);
-                else
-                    tmp.Add(h);
+                    heads[index] = newHead;
             }
-
-            heads = tmp;
         }
 
         private Node Snake(Node head)

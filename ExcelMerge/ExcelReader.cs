@@ -8,22 +8,18 @@ namespace ExcelMerge
         internal static IEnumerable<ExcelRow> Read(ISheet sheet)
         {
             var actualRowIndex = 0;
-            for (int rowIndex = 0; rowIndex <= sheet.LastRowNum; rowIndex++)
+            foreach (IRow row in sheet)
             {
-                var row = sheet.GetRow(rowIndex);
-                if (row == null)
-                    continue;
-
-                var cells = new List<ExcelCell>();
+                var cells = new List<ExcelCell>(System.Math.Max(0, (int)row.LastCellNum));
                 for (int columnIndex = 0; columnIndex < row.LastCellNum; columnIndex++)
                 {
                     var cell = row.GetCell(columnIndex);
                     var stringValue = ExcelUtility.GetCellStringValue(cell);
 
-                    cells.Add(new ExcelCell(stringValue, columnIndex, rowIndex));
+                    cells.Add(new ExcelCell(stringValue, columnIndex, row.RowNum));
                 }
 
-                yield return new ExcelRow(actualRowIndex++, cells);
+                yield return ExcelRow.FromCells(actualRowIndex++, cells);
             }
         }
     }

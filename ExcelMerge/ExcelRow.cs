@@ -15,6 +15,17 @@ namespace ExcelMerge
             Cells = cells.ToList();
         }
 
+        private ExcelRow(int index, List<ExcelCell> cells)
+        {
+            Index = index;
+            Cells = cells;
+        }
+
+        internal static ExcelRow FromCells(int index, List<ExcelCell> cells)
+        {
+            return new ExcelRow(index, cells);
+        }
+
         public override bool Equals(object obj)
         {
             var other = obj as ExcelRow;
@@ -55,6 +66,8 @@ namespace ExcelMerge
     internal class RowComparer : IEqualityComparer<ExcelRow>
     {
         public HashSet<int> IgnoreColumns { get; private set; }
+        private readonly Dictionary<ExcelRow, int> hashCodes =
+            new Dictionary<ExcelRow, int>(ReferenceEqualityComparer.Instance);
 
         public RowComparer(HashSet<int> ignoreColumns)
         {
@@ -68,6 +81,10 @@ namespace ExcelMerge
 
         public int GetHashCode(ExcelRow obj)
         {
+            int cached;
+            if (hashCodes.TryGetValue(obj, out cached))
+                return cached;
+
             var hash = 7;
             var index = 0;
             foreach (var cell in obj.Cells)
@@ -80,6 +97,7 @@ namespace ExcelMerge
                 index++;
             }
 
+            hashCodes.Add(obj, hash);
             return hash;
         }
     }

@@ -13,13 +13,18 @@ namespace NetDiff
 
         public static IEnumerable<DiffResult<T>> Diff<T>(IEnumerable<T> seq1, IEnumerable<T> seq2, DiffOption<T> option)
         {
-            if (seq1 == null || seq2 == null || (!seq1.Any() && !seq2.Any()))
+            if (seq1 == null || seq2 == null)
                 return Enumerable.Empty<DiffResult<T>>();
 
-            var editGrap = new EditGraph<T>(seq1, seq2);
-            var waypoints = editGrap.CalculatePath(option);
+            var array1 = seq1.ToArray();
+            var array2 = seq2.ToArray();
+            if (array1.Length == 0 && array2.Length == 0)
+                return Enumerable.Empty<DiffResult<T>>();
 
-            return MakeResults<T>(waypoints, seq1, seq2);
+            var editGraph = new EditGraph<T>(array1, array2);
+            var waypoints = editGraph.CalculatePath(option);
+
+            return MakeResults(waypoints, array1, array2);
         }
 
         public static IEnumerable<T> CreateSrc<T>(IEnumerable<DiffResult<T>> diffResults)
@@ -47,33 +52,38 @@ namespace NetDiff
             var currentStatus = deleteFirst ? DiffStatus.Deleted : DiffStatus.Inserted;
             var nextStatus = deleteFirst ? DiffStatus.Inserted : DiffStatus.Deleted;
 
-            var queue = new Queue<DiffResult<T>>(diffResults);
-            while (queue.Any())
+            using (var enumerator = diffResults.GetEnumerator())
             {
-                var result = queue.Dequeue();
-                if (result.Status == currentStatus)
+                if (!enumerator.MoveNext())
+                    yield break;
+
+                var current = enumerator.Current;
+                while (enumerator.MoveNext())
                 {
-                    if (queue.Any() && queue.Peek().Status == nextStatus)
+                    var next = enumerator.Current;
+                    if (current.Status == currentStatus && next.Status == nextStatus)
                     {
-                        var obj1 = deleteFirst ? result.Obj1 : queue.Dequeue().Obj1;
-                        var obj2 = deleteFirst ? queue.Dequeue().Obj2 : result.Obj2;
+                        var obj1 = deleteFirst ? current.Obj1 : next.Obj1;
+                        var obj2 = deleteFirst ? next.Obj2 : current.Obj2;
                         yield return new DiffResult<T>(obj1, obj2, DiffStatus.Modified);
+
+                        if (!enumerator.MoveNext())
+                            yield break;
+                        current = enumerator.Current;
                     }
                     else
-                        yield return result;
-
-                    continue;
+                    {
+                        yield return current;
+                        current = next;
+                    }
                 }
 
-                yield return result;
+                yield return current;
             }
         }
 
-        private static IEnumerable<DiffResult<T>> MakeResults<T>(IEnumerable<Point> waypoints, IEnumerable<T> seq1, IEnumerable<T> seq2)
+        private static IEnumerable<DiffResult<T>> MakeResults<T>(IEnumerable<Point> waypoints, T[] array1, T[] array2)
         {
-            var array1 = seq1.ToArray();
-            var array2 = seq2.ToArray();
-
             foreach (var pair in waypoints.MakePairsWithNext())
             {
                 var status = GetStatus(pair.Item1, pair.Item2);

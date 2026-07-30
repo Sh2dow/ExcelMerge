@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -26,13 +27,14 @@ internal sealed class RowResizeCell : Grid
         _resize = resize;
         Background = Brushes.Transparent;
 
-        Children.Add(new TextBlock
+        var rowNumber = new TextBlock
         {
-            Text = row.DisplayIndex,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             IsHitTestVisible = false,
-        });
+        };
+        rowNumber.Bind(TextBlock.TextProperty, new Binding(nameof(DiffRow.DisplayIndex)) { Source = row });
+        Children.Add(rowNumber);
 
         _grip = new Border
         {

@@ -14,7 +14,7 @@ namespace ExcelMerge
 
         public ExcelRowDiff CreateRow()
         {
-            var row = new ExcelRowDiff(Rows.Any() ? Rows.Keys.Last() + 1 : 0);
+            var row = new ExcelRowDiff(Rows.Count);
             Rows.Add(row.Index, row);
 
             return row;
@@ -28,15 +28,28 @@ namespace ExcelMerge
             var modifiedCellCount = 0;
             foreach (var row in Rows)
             {
-                if (row.Value.IsAdded())
+                var isAdded = true;
+                var isRemoved = true;
+                var isModified = false;
+                foreach (var cell in row.Value.Cells.Values)
+                {
+                    var status = cell.Status;
+                    isAdded &= status == ExcelCellStatus.Added;
+                    isRemoved &= status == ExcelCellStatus.Removed;
+                    if (status != ExcelCellStatus.None)
+                    {
+                        isModified = true;
+                        modifiedCellCount++;
+                    }
+                }
+
+                if (isAdded)
                     addedRowCount++;
-                else if (row.Value.IsRemoved())
+                else if (isRemoved)
                     removedRowCount++;
 
-                if (row.Value.IsModified())
+                if (isModified)
                     modifiedRowCount++;
-
-                modifiedCellCount += row.Value.ModifiedCellCount;
             }
 
             return new ExcelSheetDiffSummary

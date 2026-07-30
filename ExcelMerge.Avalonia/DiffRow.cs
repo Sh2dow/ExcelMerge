@@ -1,20 +1,27 @@
 using Avalonia.Media;
 using ExcelMerge;
+using System.ComponentModel;
 
 namespace ExcelMerge.Avalonia;
 
-public sealed class DiffRow
+public sealed class DiffRow : INotifyPropertyChanged
 {
+    private readonly IReadOnlyDictionary<int, DiffCell> _cellsByColumn;
+    private readonly DiffCell[] _conflictCells;
+    private readonly bool _isChanged;
+
     public int Index { get; }
     public IReadOnlyList<DiffCell> Cells { get; }
-    public bool IsChanged => Cells.Any(c => c.Status != ExcelCellStatus.None);
-    public bool HasConflict => Cells.Any(cell => cell.IsConflict);
-    public IReadOnlyList<DiffCell> ConflictCells => Cells.Where(cell => cell.IsConflict).ToList();
-    public int ConflictRowIndex => ConflictCells.FirstOrDefault()?.OriginalRowIndex ?? Index - 1;
-    public bool IsResolved => ConflictCells.All(cell => cell.Resolution != MergeResolution.Unresolved);
-    public string DisplayIndex => ConflictCells.Any(cell => cell.Resolution == MergeResolution.Both) ? $"{Index} x2" : Index.ToString();
+    public bool IsChanged => _isChanged;
+    public bool HasConflict => _conflictCells.Length > 0;
+    public IReadOnlyList<DiffCell> ConflictCells => _conflictCells;
+    public int ConflictRowIndex => _conflictCells.Length > 0 ? _conflictCells[0].OriginalRowIndex : Index - 1;
+    public bool IsResolved => _conflictCells.All(cell => cell.Resolution != MergeResolution.Unresolved);
+    public string DisplayIndex => _conflictCells.Any(cell => cell.Resolution == MergeResolution.Both) ? $"{Index} x2" : Index.ToString();
     public double RowHeight { get; private set; } = 28;
     public bool HasCustomRowHeight { get; private set; }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public DiffRow(ExcelRowDiff row, IReadOnlyDictionary<(int Row, int Column), string>? baseValues = null)
     {
@@ -25,13 +32,25 @@ public sealed class DiffRow
             foreach (var cell in Cells)
                 cell.ClassifyConflict(baseValues);
         }
+        _isChanged = Cells.Any(cell => cell.Status != ExcelCellStatus.None);
+        _conflictCells = Cells.Where(cell => cell.IsConflict).ToArray();
+        _cellsByColumn = Cells.ToDictionary(cell => cell.ColumnIndex);
+    }
+
+    internal DiffCell? GetCell(int columnIndex) =>
+        _cellsByColumn.TryGetValue(columnIndex, out var cell) ? cell : null;
+
+    internal void NotifyResolutionChanged()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsResolved)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayIndex)));
     }
 
     public void Resolve(MergeResolution resolution)
     {
         if (HasConflict)
         {
-            foreach (var cell in ConflictCells)
+            foreach (var cell in _conflictCells)
                 cell.Resolve(resolution);
         }
     }
@@ -49,7 +68,7 @@ public sealed class DiffRow
     }
 }
 
-public sealed class DiffCell
+public sealed class DiffCell : INotifyPropertyChanged
 {
     private static readonly IBrush AddedRightBrush = new SolidColorBrush(Color.Parse("#DDF6E7"));
     private static readonly IBrush AddedLeftBrush = new SolidColorBrush(Color.Parse("#ECF8F1"));
@@ -62,6 +81,8 @@ public sealed class DiffCell
     private static readonly IBrush BothBrush = new SolidColorBrush(Color.Parse("#DCEBFA"));
 
     private readonly ExcelCellDiff _cell;
+    private readonly DiffRow _owner;
+    private InlineDiffResult? _inlineDiff;
     public int ColumnIndex => _cell.ColumnIndex;
     public int OriginalColumnIndex => Status == ExcelCellStatus.Added
         ? _cell.DstCell.OriginalColumnIndex
@@ -76,9 +97,20 @@ public sealed class DiffCell
     public bool IsConflict { get; private set; }
     public MergeResolution Resolution { get; private set; }
     public string? CustomValue { get; private set; }
+    public string LocalDisplayValue => Value(false);
+    public string RemoteDisplayValue => Value(true);
+    public IBrush LocalBackground => Brush(false);
+    public IBrush RemoteBackground => Brush(true);
+    public string ResolutionToolTip => Resolution == MergeResolution.Unresolved
+        ? "Click to resolve this conflict"
+        : $"Resolved: {Resolution}. Click to change.";
+    internal InlineDiffResult InlineDiff => _inlineDiff ??= InlineTextDiff.Create(LocalValue, RemoteValue);
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public DiffCell(DiffRow owner, ExcelCellDiff cell)
     {
+        _owner = owner;
         _cell = cell;
     }
 
@@ -105,8 +137,19 @@ public sealed class DiffCell
     {
         if (!IsConflict)
             return;
+        var nextCustomValue = resolution == MergeResolution.Custom ? customValue ?? string.Empty : null;
+        if (Resolution == resolution && string.Equals(CustomValue, nextCustomValue, StringComparison.Ordinal))
+            return;
         Resolution = resolution;
-        CustomValue = resolution == MergeResolution.Custom ? customValue ?? string.Empty : null;
+        CustomValue = nextCustomValue;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Resolution)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CustomValue)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalDisplayValue)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RemoteDisplayValue)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LocalBackground)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RemoteBackground)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ResolutionToolTip)));
+        _owner.NotifyResolutionChanged();
     }
 
     public IBrush Brush(bool remote)

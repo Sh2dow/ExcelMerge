@@ -29,7 +29,7 @@ public sealed class SheetOverviewMap : Control
     private static readonly Pen BorderPen = new(new SolidColorBrush(Color.Parse("#CBD5E1")), 1);
     private static readonly Pen ViewportPen = new(new SolidColorBrush(Color.Parse("#2563EB")), 1.5);
 
-    private readonly List<Marker> _markers = new();
+    private readonly Dictionary<(int Row, int Column), SheetOverviewMarkerKind> _markers = new();
     private IReadOnlyList<RenderedMarker> _renderedMarkers = Array.Empty<RenderedMarker>();
     private Rect _viewport = new(0, 0, 1, 1);
     private int _rowCount;
@@ -60,10 +60,32 @@ public sealed class SheetOverviewMap : Control
             {
                 var kind = Classify(cell.Status, cell.IsConflict, cell.Resolution);
                 if (kind != SheetOverviewMarkerKind.None)
-                    _markers.Add(new Marker(rowIndex, cell.ColumnIndex, kind));
+                    _markers[(rowIndex, cell.ColumnIndex)] = kind;
             }
         }
 
+        InvalidateMarkers();
+    }
+
+    public void UpdateRow(int rowIndex, DiffRow row)
+    {
+        if (rowIndex < 0 || rowIndex >= _rowCount)
+            return;
+        foreach (var cell in row.Cells)
+        {
+            var key = (rowIndex, cell.ColumnIndex);
+            var kind = Classify(cell.Status, cell.IsConflict, cell.Resolution);
+            if (kind == SheetOverviewMarkerKind.None)
+                _markers.Remove(key);
+            else
+                _markers[key] = kind;
+        }
+
+        InvalidateMarkers();
+    }
+
+    private void InvalidateMarkers()
+    {
         _renderWidth = -1;
         _renderHeight = -1;
         InvalidateVisual();
@@ -197,15 +219,15 @@ public sealed class SheetOverviewMap : Control
         var pixels = new SheetOverviewMarkerKind[width * height];
         foreach (var marker in _markers)
         {
-            var x = ScaleIndex(marker.ColumnIndex, _columnCount, width);
-            var y = ScaleIndex(marker.RowIndex, _rowCount, height);
+            var x = ScaleIndex(marker.Key.Column, _columnCount, width);
+            var y = ScaleIndex(marker.Key.Row, _rowCount, height);
             for (var pixelY = Math.Max(0, y - 1); pixelY <= Math.Min(height - 1, y + 1); pixelY++)
             {
                 for (var pixelX = Math.Max(0, x - 1); pixelX <= Math.Min(width - 1, x + 1); pixelX++)
                 {
                     var pixelIndex = pixelY * width + pixelX;
-                    if (marker.Kind > pixels[pixelIndex])
-                        pixels[pixelIndex] = marker.Kind;
+                    if (marker.Value > pixels[pixelIndex])
+                        pixels[pixelIndex] = marker.Value;
                 }
             }
         }
@@ -247,6 +269,5 @@ public sealed class SheetOverviewMap : Control
         _ => Brushes.Transparent,
     };
 
-    private readonly record struct Marker(int RowIndex, int ColumnIndex, SheetOverviewMarkerKind Kind);
     private readonly record struct RenderedMarker(Rect Bounds, SheetOverviewMarkerKind Kind);
 }
