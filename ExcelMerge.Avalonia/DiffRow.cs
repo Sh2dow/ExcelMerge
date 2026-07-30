@@ -11,8 +11,8 @@ public sealed class DiffRow
     public bool HasConflict => Cells.Any(cell => cell.IsConflict);
     public IReadOnlyList<DiffCell> ConflictCells => Cells.Where(cell => cell.IsConflict).ToList();
     public int ConflictRowIndex => ConflictCells.FirstOrDefault()?.OriginalRowIndex ?? Index - 1;
-    public MergeResolution Resolution { get; private set; }
-    public string DisplayIndex => Resolution == MergeResolution.Both ? $"{Index} x2" : Index.ToString();
+    public bool IsResolved => ConflictCells.All(cell => cell.Resolution != MergeResolution.Unresolved);
+    public string DisplayIndex => ConflictCells.Any(cell => cell.Resolution == MergeResolution.Both) ? $"{Index} x2" : Index.ToString();
     public double RowHeight { get; set; } = 32;
 
     public DiffRow(ExcelRowDiff row, IReadOnlyDictionary<(int Row, int Column), string>? baseValues = null)
@@ -29,25 +29,30 @@ public sealed class DiffRow
     public void Resolve(MergeResolution resolution)
     {
         if (HasConflict)
-            Resolution = resolution;
+        {
+            foreach (var cell in ConflictCells)
+                cell.Resolve(resolution);
+        }
     }
 }
 
 public sealed class DiffCell
 {
-    private static readonly IBrush AddedRightBrush = new SolidColorBrush(Color.Parse("#285A3A"));
-    private static readonly IBrush AddedLeftBrush = new SolidColorBrush(Color.Parse("#1D3327"));
-    private static readonly IBrush RemovedRightBrush = new SolidColorBrush(Color.Parse("#3A2528"));
-    private static readonly IBrush RemovedLeftBrush = new SolidColorBrush(Color.Parse("#6B3038"));
-    private static readonly IBrush ModifiedBrush = new SolidColorBrush(Color.Parse("#66551D"));
-    private static readonly IBrush ConflictBrush = new SolidColorBrush(Color.Parse("#7A2E38"));
-    private static readonly IBrush AcceptedBrush = new SolidColorBrush(Color.Parse("#285A3A"));
-    private static readonly IBrush RejectedBrush = new SolidColorBrush(Color.Parse("#35282B"));
-    private static readonly IBrush BothBrush = new SolidColorBrush(Color.Parse("#294D70"));
+    private static readonly IBrush AddedRightBrush = new SolidColorBrush(Color.Parse("#DDF6E7"));
+    private static readonly IBrush AddedLeftBrush = new SolidColorBrush(Color.Parse("#ECF8F1"));
+    private static readonly IBrush RemovedRightBrush = new SolidColorBrush(Color.Parse("#FFF0F2"));
+    private static readonly IBrush RemovedLeftBrush = new SolidColorBrush(Color.Parse("#FBDDE2"));
+    private static readonly IBrush ModifiedBrush = new SolidColorBrush(Color.Parse("#FFF1BF"));
+    private static readonly IBrush ConflictBrush = new SolidColorBrush(Color.Parse("#F7CBD2"));
+    private static readonly IBrush AcceptedBrush = new SolidColorBrush(Color.Parse("#D9F2E3"));
+    private static readonly IBrush RejectedBrush = new SolidColorBrush(Color.Parse("#F3E5E8"));
+    private static readonly IBrush BothBrush = new SolidColorBrush(Color.Parse("#DCEBFA"));
 
-    private readonly DiffRow _owner;
     private readonly ExcelCellDiff _cell;
     public int ColumnIndex => _cell.ColumnIndex;
+    public int OriginalColumnIndex => Status == ExcelCellStatus.Added
+        ? _cell.DstCell.OriginalColumnIndex
+        : _cell.SrcCell.OriginalColumnIndex;
     public int OriginalRowIndex => Status == ExcelCellStatus.Added
         ? _cell.DstCell.OriginalRowIndex
         : _cell.SrcCell.OriginalRowIndex;
@@ -56,10 +61,11 @@ public sealed class DiffCell
     public string RemoteValue => _cell.DstCell.Value;
     public string BaseValue { get; private set; } = string.Empty;
     public bool IsConflict { get; private set; }
+    public MergeResolution Resolution { get; private set; }
+    public string? CustomValue { get; private set; }
 
     public DiffCell(DiffRow owner, ExcelCellDiff cell)
     {
-        _owner = owner;
         _cell = cell;
     }
 
@@ -75,17 +81,31 @@ public sealed class DiffCell
             && !string.Equals(RemoteValue, BaseValue, StringComparison.Ordinal);
     }
 
-    public string Value(bool remote) => remote ? RemoteValue : LocalValue;
+    public string Value(bool remote)
+    {
+        return Resolution == MergeResolution.Custom
+            ? CustomValue ?? string.Empty
+            : remote ? RemoteValue : LocalValue;
+    }
+
+    public void Resolve(MergeResolution resolution, string? customValue = null)
+    {
+        if (!IsConflict)
+            return;
+        Resolution = resolution;
+        CustomValue = resolution == MergeResolution.Custom ? customValue ?? string.Empty : null;
+    }
 
     public IBrush Brush(bool remote)
     {
         if (IsConflict)
         {
-            return _owner.Resolution switch
+            return Resolution switch
             {
                 MergeResolution.Local => remote ? RejectedBrush : AcceptedBrush,
                 MergeResolution.Remote => remote ? AcceptedBrush : RejectedBrush,
                 MergeResolution.Both => BothBrush,
+                MergeResolution.Custom => BothBrush,
                 _ => ConflictBrush,
             };
         }

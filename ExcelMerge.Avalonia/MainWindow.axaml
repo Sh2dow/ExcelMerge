@@ -1,91 +1,396 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="ExcelMerge.Avalonia.MainWindow"
-        Title="ExcelMerge"
-        Width="1440" Height="900" MinWidth="900" MinHeight="560"
-        WindowStartupLocation="CenterScreen"
-        DragDrop.AllowDrop="True"
-        DragDrop.DragOver="FileDragOver"
-        DragDrop.Drop="WindowDrop">
-  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="18">
-    <Grid x:Name="FileInputPanel" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
-      <TextBlock Grid.Row="0" Grid.Column="0" Text="BASE" VerticalAlignment="Center" FontWeight="SemiBold"
-                 IsVisible="{Binding IsMergeMode}" />
-      <TextBox x:Name="BasePath" Grid.Row="0" Grid.Column="1" Text="{Binding BasePath, Mode=TwoWay}"
-               PlaceholderText="Base workbook"
-               IsVisible="{Binding IsMergeMode}"
-               DragDrop.AllowDrop="True" DragDrop.DragOver="FileDragOver" DragDrop.Drop="DropBase" />
-      <Button Grid.Row="0" Grid.Column="2" Content="Browse" Click="BrowseBase" IsVisible="{Binding IsMergeMode}" />
+         Title="ExcelMerge"
+         Width="1440" Height="900" MinWidth="900" MinHeight="560"
+         WindowStartupLocation="CenterScreen"
+         RequestedThemeVariant="Light"
+         Background="#EEF2F6"
+         FontFamily="Segoe UI"
+         DragDrop.AllowDrop="True"
+         DragDrop.DragOver="FileDragOver"
+         DragDrop.Drop="WindowDrop">
+  <Window.Styles>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="#FFFFFF" />
+      <Setter Property="BorderBrush" Value="#D6DDE7" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+    </Style>
+    <Style Selector="TextBlock.eyebrow">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="#647084" />
+    </Style>
+    <Style Selector="TextBox.configInput">
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Background" Value="#F8FAFC" />
+      <Setter Property="BorderBrush" Value="#CBD5E1" />
+    </Style>
+    <Style Selector="ComboBox.configInput">
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Background" Value="#F8FAFC" />
+      <Setter Property="BorderBrush" Value="#CBD5E1" />
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="Padding" Value="11,5" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="#2563EB" />
+      <Setter Property="BorderBrush" Value="#2563EB" />
+      <Setter Property="Foreground" Value="White" />
+    </Style>
+    <Style Selector="RadioButton.resolutionChoice">
+      <Setter Property="MinHeight" Value="68" />
+      <Setter Property="Padding" Value="14" />
+      <Setter Property="Background" Value="#F8FAFC" />
+      <Setter Property="BorderBrush" Value="#CBD5E1" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border x:Name="ChoiceBorder"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}">
+            <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
+              <Border x:Name="ChoiceIndicator" Width="16" Height="16" CornerRadius="8"
+                      HorizontalAlignment="Left" VerticalAlignment="Top"
+                      BorderBrush="#8A96A8" BorderThickness="1.5" Background="White">
+                <Ellipse x:Name="ChoiceIndicatorDot" Width="8" Height="8"
+                         Fill="#2563EB" IsVisible="False" />
+              </Border>
+              <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}"
+                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="RadioButton.resolutionChoice:checked">
+      <Setter Property="Background" Value="#E8F2FF" />
+      <Setter Property="BorderBrush" Value="#4B8FD8" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="RadioButton.resolutionChoice:checked /template/ Border#ChoiceIndicator">
+      <Setter Property="BorderBrush" Value="#2563EB" />
+    </Style>
+    <Style Selector="RadioButton.resolutionChoice:checked /template/ Ellipse#ChoiceIndicatorDot">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="RadioButton.resolutionChoice:pointerover">
+      <Setter Property="BorderBrush" Value="#7CA5D2" />
+      <Setter Property="Background" Value="#F2F7FD" />
+    </Style>
+  </Window.Styles>
+  <Grid>
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="14">
+    <Border x:Name="TableConfigPanel" Grid.Row="0" Classes="card" Padding="12">
+        <Grid x:Name="FileInputPanel" ColumnDefinitions="70,*,Auto"
+              RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="6">
+          <TextBlock Grid.Row="0" Text="BASE" Classes="eyebrow" VerticalAlignment="Center"
+                     IsVisible="{Binding IsMergeMode}" />
+          <TextBox x:Name="BasePath" Grid.Row="0" Grid.Column="1" Classes="configInput"
+                   Text="{Binding BasePath, Mode=TwoWay}" PlaceholderText="Base workbook"
+                   IsVisible="{Binding IsMergeMode}"
+                   DragDrop.AllowDrop="True" DragDrop.DragOver="FileDragOver" DragDrop.Drop="DropBase" />
+          <Button Grid.Row="0" Grid.Column="2" Content="..." Click="BrowseBase" IsVisible="{Binding IsMergeMode}" />
 
-      <TextBlock Grid.Row="1" Grid.Column="0" Text="LOCAL" VerticalAlignment="Center" FontWeight="SemiBold" />
-      <TextBox x:Name="LocalPath" Grid.Row="1" Grid.Column="1" Text="{Binding LocalPath, Mode=TwoWay}"
-               PlaceholderText="Drop LOCAL .xlsx, .xls, .csv or .tsv here"
-               DragDrop.AllowDrop="True" DragDrop.DragOver="FileDragOver" DragDrop.Drop="DropLocal" />
-      <Button Grid.Row="1" Grid.Column="2" Content="Browse" Click="BrowseLocal" />
+          <TextBlock Grid.Row="1" Text="LOCAL" Classes="eyebrow" Foreground="#167444" VerticalAlignment="Center" />
+          <TextBox x:Name="LocalPath" Grid.Row="1" Grid.Column="1" Classes="configInput"
+                   Text="{Binding LocalPath, Mode=TwoWay}"
+                   PlaceholderText="Drop LOCAL .xlsx, .xls, .csv or .tsv here"
+                   DragDrop.AllowDrop="True" DragDrop.DragOver="FileDragOver" DragDrop.Drop="DropLocal" />
+          <Button Grid.Row="1" Grid.Column="2" Content="..." Click="BrowseLocal" />
 
-      <TextBlock Grid.Row="2" Grid.Column="0" Text="REMOTE" VerticalAlignment="Center" FontWeight="SemiBold" />
-      <TextBox x:Name="RemotePath" Grid.Row="2" Grid.Column="1" Text="{Binding RemotePath, Mode=TwoWay}"
-               PlaceholderText="Drop REMOTE .xlsx, .xls, .csv or .tsv here"
-               DragDrop.AllowDrop="True" DragDrop.DragOver="FileDragOver" DragDrop.Drop="DropRemote" />
-      <Button Grid.Row="2" Grid.Column="2" Content="Browse" Click="BrowseRemote" />
-    </Grid>
+          <TextBlock Grid.Row="2" Text="REMOTE" Classes="eyebrow" Foreground="#A93B4C" VerticalAlignment="Center" />
+          <TextBox x:Name="RemotePath" Grid.Row="2" Grid.Column="1" Classes="configInput"
+                   Text="{Binding RemotePath, Mode=TwoWay}"
+                   PlaceholderText="Drop REMOTE .xlsx, .xls, .csv or .tsv here"
+                   DragDrop.AllowDrop="True" DragDrop.DragOver="FileDragOver" DragDrop.Drop="DropRemote" />
+          <Button Grid.Row="2" Grid.Column="2" Content="..." Click="BrowseRemote" />
 
-    <Border x:Name="DiffOptionsPanel" Grid.Row="1" Margin="0,16,0,0" Padding="12" CornerRadius="8" Background="#CCCCCC">
-      <Grid ColumnDefinitions="Auto,220,Auto,220,Auto,*" ColumnSpacing="10">
-        <TextBlock Text="Local sheet" VerticalAlignment="Center" />
-        <ComboBox x:Name="LocalSheet" Grid.Column="1" />
-        <TextBlock Grid.Column="2" Text="Remote sheet" VerticalAlignment="Center" />
-        <ComboBox x:Name="RemoteSheet" Grid.Column="3" />
-        <CheckBox x:Name="HideUnchanged" Grid.Column="4" Content="Hide unchanged rows" VerticalAlignment="Center" IsChecked="False" Click="FilterChanged" />
-        <StackPanel Grid.Column="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
-          <TextBlock Text="{Binding ModeLabel}" VerticalAlignment="Center" FontWeight="Bold" />
-          <Button Content="COMPARE" Padding="24,8" Command="{Binding CompareCommand}" />
-        </StackPanel>
+          <TextBlock Grid.Row="3" Text="SHEETS" Classes="eyebrow" VerticalAlignment="Center" />
+          <Grid Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
+                ColumnDefinitions="Auto,220,Auto,220,*" ColumnSpacing="10">
+            <TextBlock Text="LOCAL" Foreground="#167444" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <ComboBox x:Name="LocalSheet" Grid.Column="1" Classes="configInput" SelectionChanged="SheetSelectionChanged" />
+            <TextBlock Grid.Column="2" Text="REMOTE" Foreground="#A93B4C" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <ComboBox x:Name="RemoteSheet" Grid.Column="3" Classes="configInput" SelectionChanged="SheetSelectionChanged" />
+            <Border Grid.Column="4" Padding="9,4" CornerRadius="12" Background="#E1ECFF"
+                    HorizontalAlignment="Right" VerticalAlignment="Center">
+              <TextBlock Text="{Binding ModeLabel}" FontSize="11" FontWeight="Bold" Foreground="#2456A6" />
+            </Border>
+          </Grid>
+        </Grid>
+    </Border>
+
+    <Border Grid.Row="1" Classes="card" Margin="0,8" Padding="10">
+      <Grid RowDefinitions="Auto,Auto" RowSpacing="7">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+          <TextBlock x:Name="Summary" Text="Choose or drop LOCAL and REMOTE files to begin."
+                     FontSize="13" FontWeight="SemiBold" Foreground="#253047" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <Button Content="←" Click="PreviousChange" />
+            <Button Content="→" Click="NextChange" />
+          </StackPanel>
+          <Border Grid.Column="2" Padding="9,4" CornerRadius="12" Background="#F1F5F9" VerticalAlignment="Center">
+            <TextBlock x:Name="Progress" Foreground="#536174" FontWeight="SemiBold" />
+          </Border>
+        </Grid>
+        <Border x:Name="MergeConflictPanel" Grid.Row="1" Padding="8,6" CornerRadius="7"
+                Background="#FFF3F4" BorderBrush="#F0C6CC" BorderThickness="1"
+                IsVisible="{Binding IsMergeMode}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <TextBlock x:Name="ConflictSummary" Text="Compare files to detect conflicts."
+                       FontWeight="SemiBold" Foreground="#963547" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+              <Button x:Name="PreviousConflictButton" Content="←" Click="PreviousConflict" IsEnabled="False" />
+              <Button x:Name="NextConflictButton" Content="→" Click="NextConflict" IsEnabled="False" />
+              <Button x:Name="SaveResultButton" Classes="primary" Content="Save RESULT" Click="SaveResult" IsEnabled="False" />
+            </StackPanel>
+          </Grid>
+        </Border>
       </Grid>
     </Border>
 
-    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,*" Margin="0,12,0,8">
-      <TextBlock x:Name="Summary" Text="Choose or drop LOCAL and REMOTE files to begin." FontSize="14" />
-      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-        <Button Content="Previous change" Click="PreviousChange" />
-        <Button Content="Next change" Click="NextChange" />
-      </StackPanel>
-      <TextBlock x:Name="Progress" Grid.Column="2" HorizontalAlignment="Right" />
-    </Grid>
-
-    <Border x:Name="MergeConflictPanel" Grid.Row="3" Margin="0,0,0,8" Padding="12,9"
-            CornerRadius="6" BorderThickness="1" BorderBrush="#7A2E38"
-            IsVisible="{Binding IsMergeMode}">
-      <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="5">
-        <TextBlock x:Name="ConflictSummary" Text="Compare files to detect conflicts." FontWeight="SemiBold" />
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-          <Button x:Name="PreviousConflictButton" Content="Previous conflict" Click="PreviousConflict" IsEnabled="False" />
-          <Button x:Name="NextConflictButton" Content="Next conflict" Click="NextConflict" IsEnabled="False" />
-          <Button x:Name="UseLocalButton" Content="Use LOCAL" Click="UseLocal" IsEnabled="False" />
-          <Button x:Name="UseRemoteButton" Content="Use REMOTE" Click="UseRemote" IsEnabled="False" />
-          <Button x:Name="KeepBothButton" Content="KEEP BOTH" Click="KeepBoth" IsEnabled="False" />
-          <Button x:Name="SaveResultButton" Content="Save RESULT" Click="SaveResult" IsEnabled="False" />
-        </StackPanel>
-        <TextBlock x:Name="ConflictDetails" Grid.Row="1" Grid.ColumnSpan="2"
-                   Text="BASE is used for conflict detection and shown here only when needed."
-                   TextTrimming="CharacterEllipsis" />
+    <Border Grid.Row="2" Classes="card" Padding="0" ClipToBounds="True">
+      <Grid RowDefinitions="Auto,Auto,*">
+        <Grid Margin="12,8" ColumnDefinitions="*,Auto">
+          <TextBlock Text="TABLE DIFF" Classes="eyebrow" VerticalAlignment="Center" />
+          <Border Grid.Column="1" Padding="9,4" CornerRadius="14" Background="#F1F5F9" VerticalAlignment="Center">
+            <CheckBox x:Name="HideUnchanged" Content="Hide unchanged rows"
+                      IsChecked="False" Click="FilterChanged" />
+          </Border>
+        </Grid>
+        <Grid Grid.Row="1" ColumnDefinitions="*,8,*" Background="#F8FAFC">
+          <Border Padding="12,7" Background="#ECF8F0" BorderBrush="#D2EADB" BorderThickness="0,1,0,1">
+            <TextBlock Text="LOCAL" FontSize="12" FontWeight="Bold" Foreground="#167444" />
+          </Border>
+          <Border Grid.Column="1" Background="#D6DDE7" />
+          <Border Grid.Column="2" Padding="12,7" Background="#FFF0F2" BorderBrush="#F0D6DA" BorderThickness="0,1,0,1">
+            <TextBlock Text="REMOTE" FontSize="12" FontWeight="Bold" Foreground="#A93B4C" />
+          </Border>
+        </Grid>
+        <Grid Grid.Row="2" ColumnDefinitions="*,8,*">
+          <DataGrid x:Name="LocalGrid" Grid.Column="0" AutoGenerateColumns="False" IsReadOnly="True"
+                    Background="White" BorderThickness="0" GridLinesVisibility="All" HeadersVisibility="Column" SelectionMode="Single"
+                    ColumnHeaderHeight="34" CanUserResizeColumns="True" CanUserReorderColumns="False" CanUserSortColumns="False"
+                    HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                    SelectionChanged="GridSelectionChanged" LoadingRow="GridLoadingRow" UnloadingRow="GridUnloadingRow" />
+          <Border Grid.Column="1" Background="#D6DDE7" />
+          <DataGrid x:Name="RemoteGrid" Grid.Column="2" AutoGenerateColumns="False" IsReadOnly="True"
+                    Background="White" BorderThickness="0" GridLinesVisibility="All" HeadersVisibility="Column" SelectionMode="Single"
+                    ColumnHeaderHeight="34" CanUserResizeColumns="True" CanUserReorderColumns="False" CanUserSortColumns="False"
+                    HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                    SelectionChanged="GridSelectionChanged" LoadingRow="GridLoadingRow" UnloadingRow="GridUnloadingRow" />
+        </Grid>
       </Grid>
     </Border>
 
-    <Grid Grid.Row="4" ColumnDefinitions="*,8,*">
-      <DataGrid x:Name="LocalGrid" Grid.Column="0" AutoGenerateColumns="False" IsReadOnly="True"
-                GridLinesVisibility="All" HeadersVisibility="Column" SelectionMode="Single"
-                ColumnHeaderHeight="32" CanUserResizeColumns="True" CanUserReorderColumns="False" CanUserSortColumns="False"
-                HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                SelectionChanged="GridSelectionChanged" LoadingRow="GridLoadingRow" UnloadingRow="GridUnloadingRow" />
-      <Border Grid.Column="1" Background="#39404A" />
-      <DataGrid x:Name="RemoteGrid" Grid.Column="2" AutoGenerateColumns="False" IsReadOnly="True"
-                GridLinesVisibility="All" HeadersVisibility="Column" SelectionMode="Single"
-                ColumnHeaderHeight="32" CanUserResizeColumns="True" CanUserReorderColumns="False" CanUserSortColumns="False"
-                HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                SelectionChanged="GridSelectionChanged" LoadingRow="GridLoadingRow" UnloadingRow="GridUnloadingRow" />
-    </Grid>
+    <Border Grid.Row="3" x:Name="ErrorPanel" Margin="0,8,0,0" Padding="10,6" CornerRadius="6"
+            Background="#FFF1F0" BorderBrush="#F2C2BE" BorderThickness="1"
+            IsVisible="{Binding #Error.Text, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+      <TextBlock x:Name="Error" Foreground="#B42318" TextWrapping="Wrap" />
+    </Border>
+  </Grid>
 
-    <TextBlock Grid.Row="5" x:Name="Error" Margin="0,10,0,0" Foreground="#FF8A80" TextWrapping="Wrap" />
+    <Grid x:Name="ConflictDialogOverlay" IsVisible="False" Background="#990F172A" Panel.ZIndex="100">
+      <Border Width="900" MaxWidth="980" Margin="24" Padding="24" CornerRadius="12"
+              HorizontalAlignment="Center" VerticalAlignment="Center"
+              Background="White" BorderBrush="#C7D0DC" BorderThickness="1"
+              TextElement.Foreground="#1F2937">
+        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="16">
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="4">
+              <TextBlock x:Name="ConflictDialogTitle" Text="Resolve cell conflict" FontSize="21"
+                         FontWeight="SemiBold" Foreground="#172033" />
+              <Border Padding="9,4" CornerRadius="11" Background="#F1F5F9" HorizontalAlignment="Left">
+                <TextBlock x:Name="ConflictDialogAddress" FontSize="12" FontWeight="SemiBold" Foreground="#536174" />
+              </Border>
+            </StackPanel>
+            <Button Grid.Column="1" Content="Close" Click="CancelConflictDialog" VerticalAlignment="Top" />
+          </Grid>
+
+          <ScrollViewer Grid.Row="1" MaxHeight="660" Margin="0,0,-8,0" Padding="0,0,8,0"
+                        HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="16">
+          <Grid x:Name="CellConflictPanel" Grid.Row="1" RowDefinitions="Auto,Auto" RowSpacing="8">
+            <Border Padding="14" CornerRadius="8" Background="#ECF8F0" BorderBrush="#B9DFC7" BorderThickness="1">
+              <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+                <StackPanel Spacing="1" VerticalAlignment="Center">
+                  <TextBlock Text="LOCAL" FontWeight="Bold" Foreground="#176B38" />
+                  <TextBlock Text="Current value" FontSize="11" Foreground="#5D7666" />
+                </StackPanel>
+                <Border Grid.Column="1" CornerRadius="5" Background="White" BorderBrush="#D6E5DC" BorderThickness="1">
+                  <ScrollViewer MinHeight="44" MaxHeight="120"
+                                HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <SelectableTextBlock x:Name="ConflictLocalValue" Padding="9,7"
+                                         TextWrapping="Wrap" Foreground="#1F2937" />
+                  </ScrollViewer>
+                </Border>
+              </Grid>
+            </Border>
+            <Border Grid.Row="1" Padding="14" CornerRadius="8" Background="#FFF0F2" BorderBrush="#E8C4CA" BorderThickness="1">
+              <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+                <StackPanel Spacing="1" VerticalAlignment="Center">
+                  <TextBlock Text="REMOTE" FontWeight="Bold" Foreground="#9B2638" />
+                  <TextBlock Text="Incoming value" FontSize="11" Foreground="#856169" />
+                </StackPanel>
+                <Border Grid.Column="1" CornerRadius="5" Background="White" BorderBrush="#E8D7DA" BorderThickness="1">
+                  <ScrollViewer MinHeight="44" MaxHeight="120"
+                                HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <SelectableTextBlock x:Name="ConflictRemoteValue" Padding="9,7"
+                                         TextWrapping="Wrap" Foreground="#1F2937" />
+                  </ScrollViewer>
+                </Border>
+              </Grid>
+            </Border>
+          </Grid>
+
+          <Border x:Name="RowConflictPanel" Grid.Row="0" IsVisible="False" Padding="14" CornerRadius="8"
+                  Background="#F8FAFC" BorderBrush="#D6DDE7" BorderThickness="1">
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+              <TextBlock Text="BASE" FontWeight="Bold" Foreground="#4B5563" VerticalAlignment="Center" />
+              <TextBlock Grid.Row="1" Text="LOCAL" FontWeight="Bold" Foreground="#176B38" VerticalAlignment="Center" />
+              <TextBlock Grid.Row="2" Text="REMOTE" FontWeight="Bold" Foreground="#9B2638" VerticalAlignment="Center" />
+              <TextBlock x:Name="RowResultLabel" Grid.Row="3" Text="RESULT" FontWeight="Bold"
+                         Foreground="#245A8D" VerticalAlignment="Center" />
+              <TextBlock x:Name="RowSecondResultLabel" Grid.Row="4" Text="RESULT 2 · REMOTE" FontWeight="Bold"
+                         Foreground="#245A8D" VerticalAlignment="Center" IsVisible="False" />
+              <ScrollViewer Grid.Column="1" Grid.RowSpan="5" MaxHeight="400"
+                            HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8" Margin="4,4,0,20">
+                  <StackPanel x:Name="RowBaseCells" Orientation="Horizontal" Spacing="6" />
+                  <StackPanel x:Name="RowLocalCells" Grid.Row="1" Orientation="Horizontal" Spacing="6" />
+                  <StackPanel x:Name="RowRemoteCells" Grid.Row="2" Orientation="Horizontal" Spacing="6" />
+                  <StackPanel x:Name="RowResultCells" Grid.Row="3" Orientation="Horizontal" Spacing="6" />
+                  <StackPanel x:Name="RowSecondResultCells" Grid.Row="4" Orientation="Horizontal" Spacing="6" IsVisible="False" />
+                  <Border x:Name="RowColumnSelectionBorder" Grid.RowSpan="4" Width="149" Height="290"
+                          Margin="-5"
+                          HorizontalAlignment="Left" VerticalAlignment="Top" IsVisible="False"
+                          IsHitTestVisible="False" BorderBrush="#2878C7" BorderThickness="3"
+                          CornerRadius="8" />
+                </Grid>
+              </ScrollViewer>
+            </Grid>
+          </Border>
+
+          <Border x:Name="CellBasePanel" Grid.Row="0" Padding="12" CornerRadius="8" Background="#F8FAFC"
+                  BorderBrush="#D6DDE7" BorderThickness="1">
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+              <StackPanel VerticalAlignment="Center" Spacing="1">
+                <TextBlock Text="BASE" FontWeight="Bold" Foreground="#4B5563" />
+                <TextBlock Text="Original value" FontSize="11" Foreground="#7B8492" />
+              </StackPanel>
+              <Border Grid.Column="1" CornerRadius="5" Background="White" BorderBrush="#DCE2E9" BorderThickness="1">
+                <ScrollViewer MinHeight="44" MaxHeight="120"
+                              HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                  <SelectableTextBlock x:Name="ConflictBaseValue" Padding="9,7"
+                                       TextWrapping="Wrap" Foreground="#1F2937" />
+                </ScrollViewer>
+              </Border>
+            </Grid>
+          </Border>
+
+          <StackPanel Grid.Row="2" Spacing="10">
+            <StackPanel Spacing="2">
+              <TextBlock Text="Choose the result" FontSize="15" FontWeight="SemiBold" Foreground="#253047" />
+              <TextBlock Text="The preview updates immediately. Apply when the result looks correct."
+                         FontSize="11" Foreground="#6B7688" />
+            </StackPanel>
+            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
+              <RadioButton x:Name="UseLocalChoice" Classes="resolutionChoice" GroupName="ConflictResolution" Click="ResolutionChoiceChanged">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="Use local" FontWeight="SemiBold" />
+                  <TextBlock Text="Keep current" FontSize="11" Foreground="#647084" />
+                </StackPanel>
+              </RadioButton>
+              <RadioButton x:Name="UseRemoteChoice" Grid.Column="1" Classes="resolutionChoice" GroupName="ConflictResolution" Click="ResolutionChoiceChanged">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="Use remote" FontWeight="SemiBold" />
+                  <TextBlock Text="Take incoming" FontSize="11" Foreground="#647084" />
+                </StackPanel>
+              </RadioButton>
+              <RadioButton x:Name="BothChoice" Grid.Column="2" Classes="resolutionChoice" GroupName="ConflictResolution" Click="ResolutionChoiceChanged">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="Both" FontWeight="SemiBold" />
+                  <TextBlock Text="Keep two rows" FontSize="11" Foreground="#647084" />
+                </StackPanel>
+              </RadioButton>
+              <RadioButton x:Name="CustomChoice" Grid.Column="3" Classes="resolutionChoice" GroupName="ConflictResolution" Click="ResolutionChoiceChanged">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="Custom value" FontWeight="SemiBold" />
+                  <TextBlock Text="Edit result" FontSize="11" Foreground="#647084" />
+                </StackPanel>
+              </RadioButton>
+            </Grid>
+            <TextBox x:Name="CustomConflictValue" PlaceholderText="Enter the value to use in RESULT"
+                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="82" MaxHeight="160" IsEnabled="False"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     Background="#F8FBFF" BorderBrush="#8AB4E0" BorderThickness="1" Foreground="#1F2937" />
+            <Border x:Name="RowCustomEditor" IsVisible="False" Padding="14" CornerRadius="8"
+                    Background="#F8FAFC" BorderBrush="#9BBDE0" BorderThickness="1">
+              <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="86,*" RowSpacing="8" ColumnSpacing="12">
+                <TextBlock x:Name="RowCustomColumnTitle" Grid.ColumnSpan="2" FontWeight="SemiBold"
+                           FontSize="15" Foreground="#245A8D" />
+                <TextBlock Grid.Row="1" Text="BASE" FontWeight="Bold" Foreground="#4B5563" VerticalAlignment="Center" />
+                <Border Grid.Row="1" Grid.Column="1" CornerRadius="5" Background="White"
+                        BorderBrush="#DCE2E9" BorderThickness="1">
+                  <ScrollViewer MinHeight="40" MaxHeight="120"
+                                HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <SelectableTextBlock x:Name="RowCustomBaseValue" Padding="9,7"
+                                         Foreground="#1F2937" TextWrapping="Wrap" />
+                  </ScrollViewer>
+                </Border>
+                <TextBlock Grid.Row="2" Text="LOCAL" FontWeight="Bold" Foreground="#176B38" VerticalAlignment="Center" />
+                <Border Grid.Row="2" Grid.Column="1" CornerRadius="5" Background="#EAF7EE"
+                        BorderBrush="#C7E2D1" BorderThickness="1">
+                  <ScrollViewer MinHeight="40" MaxHeight="120"
+                                HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <SelectableTextBlock x:Name="RowCustomLocalValue" Padding="9,7"
+                                         Foreground="#1F2937" TextWrapping="Wrap" />
+                  </ScrollViewer>
+                </Border>
+                <TextBlock Grid.Row="3" Text="REMOTE" FontWeight="Bold" Foreground="#9B2638" VerticalAlignment="Center" />
+                <Border Grid.Row="3" Grid.Column="1" CornerRadius="5" Background="#FCEDEF"
+                        BorderBrush="#E8CFD3" BorderThickness="1">
+                  <ScrollViewer MinHeight="40" MaxHeight="120"
+                                HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <SelectableTextBlock x:Name="RowCustomRemoteValue" Padding="9,7"
+                                         Foreground="#1F2937" TextWrapping="Wrap" />
+                  </ScrollViewer>
+                </Border>
+                <TextBlock Grid.Row="4" Text="RESULT" FontWeight="Bold" Foreground="#245A8D" VerticalAlignment="Center" />
+                <TextBox x:Name="RowCustomResultValue" Grid.Row="4" Grid.Column="1"
+                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72" MaxHeight="160"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         Background="#E8F2FC" Foreground="#1F2937"
+                         TextChanged="RowCustomResultChanged" />
+              </Grid>
+            </Border>
+            <Border x:Name="BothResolutionHint" IsVisible="False" Padding="10,7" CornerRadius="6" Background="#EEF5FC">
+              <TextBlock Text="Both keeps the LOCAL row first and inserts the REMOTE row immediately below it."
+                         Foreground="#46637F" FontSize="12" />
+            </Border>
+          </StackPanel>
+          </Grid>
+          </ScrollViewer>
+
+          <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,2,0,0">
+            <Button Content="Cancel" Click="CancelConflictDialog" />
+            <Button Classes="primary" Content="Apply resolution" Click="ConfirmConflictDialog" Padding="20,8" />
+          </StackPanel>
+        </Grid>
+      </Border>
+    </Grid>
   </Grid>
 </Window>

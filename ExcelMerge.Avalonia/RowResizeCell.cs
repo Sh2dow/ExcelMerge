@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 
@@ -19,10 +20,11 @@ internal sealed class RowResizeCell : Grid
     private double _startPointerY;
     private double _startHeight;
 
-    public RowResizeCell(DiffRow row, Action<DiffRow, double> resize)
+    public RowResizeCell(DiffRow row, Action<DiffRow, double> resize, Action<DiffRow>? click = null)
     {
         _row = row;
         _resize = resize;
+        Background = Brushes.Transparent;
 
         Children.Add(new TextBlock
         {
@@ -52,6 +54,23 @@ internal sealed class RowResizeCell : Grid
         _grip.PointerReleased += GripPointerReleased;
         _grip.PointerCaptureLost += GripPointerCaptureLost;
         Children.Add(_grip);
+
+        if (click != null && row.HasConflict)
+        {
+            Cursor = new Cursor(StandardCursorType.Hand);
+            ToolTip.SetTip(this, "Click to resolve all conflicts in this row");
+            AddHandler(
+                PointerPressedEvent,
+                (_, e) =>
+                {
+                    if (_grip.IsPointerOver || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                        return;
+                    click(row);
+                    e.Handled = true;
+                },
+                RoutingStrategies.Bubble,
+                handledEventsToo: true);
+        }
     }
 
     private void GripPointerPressed(object? sender, PointerPressedEventArgs e)

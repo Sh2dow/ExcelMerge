@@ -31,6 +31,85 @@ public sealed class WorkbookMergeServiceTests
     }
 
     [TestMethod]
+    public void SaveRowResolutionUsesTheEntireLocalRow()
+    {
+        var path = TempPath();
+        try
+        {
+            new WorkbookMergeService().Save(
+                Workbook("10", "base"),
+                Workbook("11", "base"),
+                Workbook("12", "remote change"),
+                new Dictionary<MergeRowKey, MergeResolution>
+                {
+                    [new MergeRowKey("Sheet1", 0)] = MergeResolution.Local,
+                },
+                new Dictionary<MergeCellKey, MergeCellResolution>(),
+                path);
+
+            var cells = ExcelWorkbook.Create(path, new ExcelSheetReadConfig()).Sheets["Sheet1"].Rows[0].Cells;
+            Assert.AreEqual("11", cells[0].Value);
+            Assert.AreEqual("base", cells[1].Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void SaveUsesIndependentCellResolutions()
+    {
+        var path = TempPath();
+        try
+        {
+            new WorkbookMergeService().Save(
+                Workbook("10", "20"),
+                Workbook("11", "21"),
+                Workbook("12", "22"),
+                new Dictionary<MergeCellKey, MergeCellResolution>
+                {
+                    [new MergeCellKey("Sheet1", 0, 0)] = new(MergeResolution.Local),
+                    [new MergeCellKey("Sheet1", 0, 1)] = new(MergeResolution.Remote),
+                },
+                path);
+
+            var cells = ExcelWorkbook.Create(path, new ExcelSheetReadConfig()).Sheets["Sheet1"].Rows[0].Cells;
+            Assert.AreEqual("11", cells[0].Value);
+            Assert.AreEqual("22", cells[1].Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
+    public void SaveUsesCustomConflictValue()
+    {
+        var path = TempPath();
+        try
+        {
+            new WorkbookMergeService().Save(
+                Workbook("10"),
+                Workbook("11"),
+                Workbook("12"),
+                new Dictionary<MergeCellKey, MergeCellResolution>
+                {
+                    [new MergeCellKey("Sheet1", 0, 0)] = new(MergeResolution.Custom, "user value"),
+                },
+                path);
+
+            var result = ExcelWorkbook.Create(path, new ExcelSheetReadConfig());
+            Assert.AreEqual("user value", result.Sheets["Sheet1"].Rows[0].Cells[0].Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
     public void SaveKeepBothDuplicatesTheConflictRow()
     {
         var path = TempPath();
@@ -117,11 +196,11 @@ public sealed class WorkbookMergeServiceTests
         }
     }
 
-    private static ExcelWorkbook Workbook(string value)
+    private static ExcelWorkbook Workbook(params string[] values)
     {
         var workbook = new ExcelWorkbook();
         var sheet = new ExcelSheet();
-        sheet.Rows.Add(0, new ExcelRow(0, new[] { new ExcelCell(value, 0, 0) }));
+        sheet.Rows.Add(0, new ExcelRow(0, values.Select((value, column) => new ExcelCell(value, column, 0))));
         workbook.Sheets.Add("Sheet1", sheet);
         return workbook;
     }

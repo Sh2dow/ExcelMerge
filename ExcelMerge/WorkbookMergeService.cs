@@ -27,12 +27,44 @@ public sealed class WorkbookMergeService
         IReadOnlyDictionary<MergeRowKey, MergeResolution> resolutions,
         string outputPath)
     {
+        SaveCore(baseWorkbook, localWorkbook, remoteWorkbook, resolutions, null, outputPath);
+    }
+
+    public void Save(
+        ExcelWorkbook baseWorkbook,
+        ExcelWorkbook localWorkbook,
+        ExcelWorkbook remoteWorkbook,
+        IReadOnlyDictionary<MergeCellKey, MergeCellResolution> resolutions,
+        string outputPath)
+    {
+        SaveCore(baseWorkbook, localWorkbook, remoteWorkbook, null, resolutions, outputPath);
+    }
+
+    public void Save(
+        ExcelWorkbook baseWorkbook,
+        ExcelWorkbook localWorkbook,
+        ExcelWorkbook remoteWorkbook,
+        IReadOnlyDictionary<MergeRowKey, MergeResolution> rowResolutions,
+        IReadOnlyDictionary<MergeCellKey, MergeCellResolution> cellResolutions,
+        string outputPath)
+    {
+        SaveCore(baseWorkbook, localWorkbook, remoteWorkbook, rowResolutions, cellResolutions, outputPath);
+    }
+
+    private static void SaveCore(
+        ExcelWorkbook baseWorkbook,
+        ExcelWorkbook localWorkbook,
+        ExcelWorkbook remoteWorkbook,
+        IReadOnlyDictionary<MergeRowKey, MergeResolution>? rowResolutions,
+        IReadOnlyDictionary<MergeCellKey, MergeCellResolution>? cellResolutions,
+        string outputPath)
+    {
         var extension = Path.GetExtension(outputPath);
         if (!extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase)
             && !extension.Equals(".xls", StringComparison.OrdinalIgnoreCase))
             throw new WorkbookMergeException("RESULT must use the .xlsx or .xls extension.");
 
-        var unresolved = new HashSet<MergeRowKey>();
+        var unresolved = new HashSet<MergeCellKey>();
         var results = new List<MergedSheetResult>();
         ValidateSheetRenameAmbiguity(baseWorkbook, localWorkbook, remoteWorkbook);
         foreach (var group in CreateSheetGroups(baseWorkbook, localWorkbook, remoteWorkbook))
@@ -41,7 +73,7 @@ public sealed class WorkbookMergeService
                 continue;
             if (group.Base != null && (group.Local == null || group.Remote == null))
                 throw new WorkbookMergeException($"Sheet deletion combined with modifications is not supported safely: '{group.ResultName}'.");
-            results.Add(MergeSheet(group, resolutions, unresolved));
+            results.Add(MergeSheet(group, rowResolutions, cellResolutions, unresolved));
         }
 
         if (unresolved.Count > 0)
@@ -49,8 +81,9 @@ public sealed class WorkbookMergeService
             var locations = string.Join(", ", unresolved
                 .OrderBy(key => key.SheetName)
                 .ThenBy(key => key.RowIndex)
+                .ThenBy(key => key.ColumnIndex)
                 .Take(10)
-                .Select(key => $"{key.SheetName}!{key.RowIndex + 1}"));
+                .Select(key => $"{key.SheetName}!{ColumnName(key.ColumnIndex)}{key.RowIndex + 1}"));
             throw new WorkbookMergeException($"Resolve all conflicts before saving RESULT: {locations}");
         }
 
@@ -92,8 +125,9 @@ public sealed class WorkbookMergeService
 
     private static MergedSheetResult MergeSheet(
         SheetGroup group,
-        IReadOnlyDictionary<MergeRowKey, MergeResolution> resolutions,
-        ISet<MergeRowKey> unresolved)
+        IReadOnlyDictionary<MergeRowKey, MergeResolution>? rowResolutions,
+        IReadOnlyDictionary<MergeCellKey, MergeCellResolution>? cellResolutions,
+        ISet<MergeCellKey> unresolved)
     {
         var baseSnapshot = SheetSnapshot.Create(group.Base);
         var localSnapshot = SheetSnapshot.Create(group.Local);
@@ -116,24 +150,48 @@ public sealed class WorkbookMergeService
                 .Distinct()
                 .OrderBy(index => index)
                 .ToList();
-            var hasConflict = columns.Any(column => IsConflict(
-                baseSnapshot.GetValue(rowIndex, column),
-                localSnapshot.GetValue(rowIndex, column),
-                remoteSnapshot.GetValue(rowIndex, column)));
-            var key = new MergeRowKey(group.ResultName, rowIndex);
-            var resolution = resolutions.TryGetValue(key, out var selected)
+            var conflictColumns = columns.Where(column => IsConflict(
+                    baseSnapshot.GetValue(rowIndex, column),
+                    localSnapshot.GetValue(rowIndex, column),
+                    remoteSnapshot.GetValue(rowIndex, column)))
+                .ToList();
+            var rowKey = new MergeRowKey(group.ResultName, rowIndex);
+            var rowResolution = rowResolutions != null && rowResolutions.TryGetValue(rowKey, out var selected)
                 ? selected
                 : MergeResolution.Unresolved;
-            if (hasConflict && resolution == MergeResolution.Unresolved)
-                unresolved.Add(key);
+            var keepBoth = conflictColumns.Count > 0 && (rowResolution == MergeResolution.Both
+                || conflictColumns.Any(column => GetCellResolution(
+                    cellResolutions,
+                    new MergeCellKey(group.ResultName, rowIndex, column)).Resolution == MergeResolution.Both));
+
+            foreach (var column in conflictColumns)
+            {
+                var key = new MergeCellKey(group.ResultName, rowIndex, column);
+                var resolution = rowResolution != MergeResolution.Unresolved
+                    ? new MergeCellResolution(rowResolution)
+                    : GetCellResolution(cellResolutions, key);
+                if (!keepBoth && resolution.Resolution == MergeResolution.Unresolved)
+                    unresolved.Add(key);
+            }
 
             var outputRowIndex = rowIndex + shift;
-            if (hasConflict && resolution == MergeResolution.Both)
+            if (keepBoth)
             {
                 rows[outputRowIndex] = localSnapshot.CopyRow(rowIndex);
                 rows[outputRowIndex + 1] = remoteSnapshot.CopyRow(rowIndex);
                 duplicatedRows.Add(rowIndex);
                 shift++;
+                continue;
+            }
+
+            if (conflictColumns.Count > 0 && rowResolution == MergeResolution.Local)
+            {
+                rows[outputRowIndex] = localSnapshot.CopyRow(rowIndex);
+                continue;
+            }
+            if (conflictColumns.Count > 0 && rowResolution == MergeResolution.Remote)
+            {
+                rows[outputRowIndex] = remoteSnapshot.CopyRow(rowIndex);
                 continue;
             }
 
@@ -143,7 +201,10 @@ public sealed class WorkbookMergeService
                 var baseValue = baseSnapshot.GetValue(rowIndex, column);
                 var localValue = localSnapshot.GetValue(rowIndex, column);
                 var remoteValue = remoteSnapshot.GetValue(rowIndex, column);
-                mergedRow[column] = MergeValue(baseValue, localValue, remoteValue, resolution);
+                var cellResolution = rowResolution != MergeResolution.Unresolved
+                    ? new MergeCellResolution(rowResolution)
+                    : GetCellResolution(cellResolutions, new MergeCellKey(group.ResultName, rowIndex, column));
+                mergedRow[column] = MergeValue(baseValue, localValue, remoteValue, cellResolution);
             }
             rows[outputRowIndex] = mergedRow;
         }
@@ -161,7 +222,7 @@ public sealed class WorkbookMergeService
         string baseValue,
         string localValue,
         string remoteValue,
-        MergeResolution resolution)
+        MergeCellResolution resolution)
     {
         if (localValue == remoteValue)
             return localValue;
@@ -169,7 +230,21 @@ public sealed class WorkbookMergeService
             return remoteValue;
         if (remoteValue == baseValue)
             return localValue;
-        return resolution == MergeResolution.Remote ? remoteValue : localValue;
+        return resolution.Resolution switch
+        {
+            MergeResolution.Remote => remoteValue,
+            MergeResolution.Custom => resolution.CustomValue ?? string.Empty,
+            _ => localValue,
+        };
+    }
+
+    private static MergeCellResolution GetCellResolution(
+        IReadOnlyDictionary<MergeCellKey, MergeCellResolution>? resolutions,
+        MergeCellKey key)
+    {
+        return resolutions != null && resolutions.TryGetValue(key, out var resolution)
+            ? resolution
+            : new MergeCellResolution(MergeResolution.Unresolved);
     }
 
     private static bool IsConflict(string baseValue, string localValue, string remoteValue)
@@ -177,6 +252,18 @@ public sealed class WorkbookMergeService
         return localValue != remoteValue
             && localValue != baseValue
             && remoteValue != baseValue;
+    }
+
+    private static string ColumnName(int index)
+    {
+        var name = string.Empty;
+        do
+        {
+            name = (char)('A' + index % 26) + name;
+            index = index / 26 - 1;
+        }
+        while (index >= 0);
+        return name;
     }
 
     private static HashSet<ExcelMergedRegion> MergeRegions(

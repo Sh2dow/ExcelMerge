@@ -53,6 +53,20 @@ public sealed class ExcelSheetDiffTests
         Assert.AreEqual(0, diff.CreateSummary().ModifiedCellCount);
     }
 
+    [TestMethod]
+    public void DiffReportsRowsWhenRemoteSheetIsMissing()
+    {
+        var local = CreateSheet(
+            new[] { "Id", "Name" },
+            new[] { "1", "Alice" });
+
+        var diff = ExcelSheet.Diff(local, new ExcelSheet(), new ExcelSheetDiffConfig());
+
+        Assert.IsTrue(diff.Rows.Count > 0);
+        Assert.IsTrue(diff.Rows.Values.SelectMany(row => row.Cells.Values)
+            .Any(cell => cell.Status == ExcelCellStatus.Removed));
+    }
+
     private static ExcelSheet CreateSheet(params string[][] values)
     {
         var sheet = new ExcelSheet();

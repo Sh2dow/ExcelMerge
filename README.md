@@ -55,6 +55,14 @@ dotnet run --project ExcelMerge.Avalonia -- merge --base-path base.xlsx --local-
 dotnet run --project ExcelMerge.Avalonia -- merge base.xlsx local.xlsx remote.xlsx
 ```
 
+The Git merge-driver entry point accepts Git's five standard placeholders:
+
+```powershell
+ExcelMerge.Avalonia.exe merge-driver <base> <ours-output> <theirs> <marker-size> <repository-path>
+```
+
+The equivalent named merge options are `--base`, `--ours`, `--theirs`, `--output`, `--marker-size`, and `--path`.
+
 The previous diff aliases `-s/--src-path` and `-d/--dst-path` remain supported.
 
 ## Git Difftool
@@ -75,7 +83,29 @@ Run it with:
 git difftool -t ExcelMerge
 ```
 
-This is diff-tool integration only. RESULT can be saved from the GUI, but the executable should not be registered as a Git merge driver until a non-interactive output-path contract and merge exit codes are implemented.
+## Git Merge Driver
+
+Add the file types to the repository's `.gitattributes`:
+
+```gitattributes
+*.xlsx -text merge=excelmerge
+*.xls -text merge=excelmerge
+```
+
+Publish the Avalonia application, then register the driver. This PowerShell command preserves the quoting required for paths containing spaces:
+
+```powershell
+git config merge.excelmerge.name "Excel workbook merge"
+git config merge.excelmerge.driver '"C:/Tools/ExcelMerge/ExcelMerge.Avalonia.exe" merge-driver %O %A %B %L %P'
+```
+
+Git supplies BASE as `%O`, the current version and required output as `%A`, the incoming version as `%B`, the conflict marker size as `%L`, and the repository path as `%P`. ExcelMerge writes a successful result over `%A`. If there are no cell conflicts, it writes the result and exits automatically; otherwise, resolve the conflicts in the UI and select **Complete Git merge**.
+
+Merge-driver exit codes are:
+
+- `0`: the merged workbook was written successfully
+- `1`: the merge was cancelled, left unresolved, or failed at runtime
+- `2`: the command-line arguments are invalid
 
 ## Project Layout
 
