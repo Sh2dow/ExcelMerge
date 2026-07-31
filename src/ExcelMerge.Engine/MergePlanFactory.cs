@@ -17,18 +17,33 @@ public static class MergePlanFactory
         ArgumentNullException.ThrowIfNull(remoteWorkbook);
         ArgumentNullException.ThrowIfNull(sheetResults);
 
-        var changes = new List<SheetChange>();
+        var worksheets = new List<SheetMergePlan>();
         var conflicts = new List<ConflictRecord>();
         var cellResolutions = new List<CellResolution>();
         var rowResolutions = new List<RowResolution>();
         var conflictIds = new HashSet<long>();
+        var sheetGroupIds = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var result in sheetResults)
         {
             cancellationToken.ThrowIfCancellationRequested();
             ArgumentNullException.ThrowIfNull(result);
-            changes.Add(result.LocalChange);
-            changes.Add(result.RemoteChange);
+            if (!sheetGroupIds.Add(result.SheetGroupId))
+            {
+                throw new ArgumentException(
+                    $"Worksheet group identifier '{result.SheetGroupId}' is duplicated.",
+                    nameof(sheetResults));
+            }
+
+            worksheets.Add(new SheetMergePlan(
+                result.SheetGroupId,
+                result.LocalChange.BaseSheet ?? result.RemoteChange.BaseSheet,
+                result.LocalChange.SourceSheet,
+                result.RemoteChange.SourceSheet,
+                result.LocalChange,
+                result.RemoteChange,
+                result.RowMappings,
+                result.AutomaticDecisions));
 
             foreach (var conflict in result.Conflicts.Span)
             {
@@ -57,7 +72,7 @@ public static class MergePlanFactory
             baseWorkbook,
             localWorkbook,
             remoteWorkbook,
-            changes.ToArray(),
+            worksheets.ToArray(),
             conflicts.ToArray(),
             cellResolutions.ToArray(),
             rowResolutions.ToArray());

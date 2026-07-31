@@ -1,0 +1,197 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:ExcelMerge.Desktop"
+        x:Class="ExcelMerge.Desktop.MainWindow"
+        x:DataType="local:MainWindowViewModel"
+        Title="{DynamicResource AppTitle}"
+        Icon="avares://ExcelMerge.Desktop/Assets/app.ico"
+        Width="1500" Height="920" MinWidth="980" MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        Background="#F3F4F1"
+        KeyDown="WindowKeyDown"
+        DragDrop.AllowDrop="True"
+        DragDrop.DragOver="WindowDragOver"
+        DragDrop.Drop="WindowDrop">
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+    <Border Grid.Row="0" Background="#24282C" Padding="12,8">
+      <Grid ColumnDefinitions="Auto,Auto,18,*,Auto,Auto,Auto" ColumnSpacing="7">
+        <ToggleButton x:Name="CompareModeButton" Content="{DynamicResource Compare}"
+                      IsChecked="True" Click="SelectCompareMode" MinWidth="86" />
+        <ToggleButton x:Name="MergeModeButton" Grid.Column="1" Content="{DynamicResource Merge}"
+                      Click="SelectMergeMode" MinWidth="86" />
+        <TextBlock Grid.Column="3" Text="ExcelMerge" Foreground="White" FontSize="17"
+                   FontWeight="SemiBold" VerticalAlignment="Center" />
+        <Button Grid.Column="4" Content="{DynamicResource Diagnostics}" Click="OpenDiagnostics" />
+        <Button Grid.Column="5" Content="{DynamicResource Settings}" Click="OpenSettings" />
+        <Button Grid.Column="6" Classes="primary" Content="{DynamicResource SaveResult}"
+                Click="SaveResult" IsEnabled="{Binding CanSave}" />
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="1" Background="White" BorderBrush="#D3D7D9" BorderThickness="0,0,0,1"
+            Padding="12,9" IsVisible="{Binding InputsExpanded}">
+      <Grid ColumnDefinitions="72,*,38" RowDefinitions="Auto,Auto,Auto"
+            ColumnSpacing="8" RowSpacing="6">
+        <TextBlock Grid.Row="0" Classes="label" Text="{DynamicResource Base}"
+                   VerticalAlignment="Center" IsVisible="{Binding IsMergeMode}" />
+        <TextBox Grid.Row="0" Grid.Column="1" Classes="compact" Text="{Binding BasePath, Mode=TwoWay}"
+                 PlaceholderText="BASE .xlsx, .csv, or .tsv" IsVisible="{Binding IsMergeMode}" />
+        <Button Grid.Row="0" Grid.Column="2" Content="..." Click="BrowseBase"
+                ToolTip.Tip="{DynamicResource Browse}" IsVisible="{Binding IsMergeMode}" />
+
+        <TextBlock Grid.Row="1" Classes="label" Text="{DynamicResource Local}"
+                   Foreground="#197044" VerticalAlignment="Center" />
+        <TextBox Grid.Row="1" Grid.Column="1" Classes="compact" Text="{Binding LocalPath, Mode=TwoWay}"
+                 PlaceholderText="LOCAL .xlsx, .csv, or .tsv" />
+        <Button Grid.Row="1" Grid.Column="2" Content="..." Click="BrowseLocal"
+                ToolTip.Tip="{DynamicResource Browse}" />
+
+        <TextBlock Grid.Row="2" Classes="label" Text="{DynamicResource Remote}"
+                   Foreground="#A13055" VerticalAlignment="Center" />
+        <TextBox Grid.Row="2" Grid.Column="1" Classes="compact" Text="{Binding RemotePath, Mode=TwoWay}"
+                 PlaceholderText="REMOTE .xlsx, .csv, or .tsv" />
+        <Button Grid.Row="2" Grid.Column="2" Content="..." Click="BrowseRemote"
+                ToolTip.Tip="{DynamicResource Browse}" />
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="2" Background="#FAFAF8" BorderBrush="#D3D7D9" BorderThickness="0,0,0,1"
+            Padding="12,7">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,18,*,160,Auto" ColumnSpacing="7">
+        <Button Classes="primary" Content="{DynamicResource Open}" Command="{Binding RunCommand}" MinWidth="82" />
+        <Button Grid.Column="1" Content="{DynamicResource Cancel}" Command="{Binding CancelCommand}" />
+        <Button Grid.Column="2" Content="{DynamicResource Swap}" Command="{Binding SwapSidesCommand}" />
+        <CheckBox Grid.Column="3" Content="{DynamicResource HideUnchanged}"
+                  IsChecked="{Binding HideUnchanged}" VerticalAlignment="Center" />
+        <Button Grid.Column="4" Content="{Binding InputToggleText}" Command="{Binding ToggleInputsCommand}" />
+        <TextBlock Grid.Column="6" Text="{Binding Status}" VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis" />
+        <ProgressBar Grid.Column="7" Minimum="0" Maximum="100" Value="{Binding ProgressValue}"
+                     IsIndeterminate="{Binding ProgressIndeterminate}" Height="8" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="8" Text="{Binding ConflictSummary}" Foreground="#8D2E46"
+                   FontWeight="SemiBold" VerticalAlignment="Center" />
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="3" ColumnDefinitions="220,5,*,5,310">
+      <Border Grid.Column="0" Background="#F8F9F6" BorderBrush="#D3D7D9" BorderThickness="0,0,1,0">
+        <Grid RowDefinitions="Auto,*,Auto,150">
+          <TextBlock Grid.Row="0" Text="{DynamicResource Sheets}" FontWeight="SemiBold"
+                     Margin="12,10,12,7" />
+          <ListBox Grid.Row="1" ItemsSource="{Binding Sheets}" SelectedItem="{Binding SelectedSheet, Mode=TwoWay}"
+                   Background="Transparent" BorderThickness="0" Margin="5,0">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="local:SheetItemViewModel">
+                <Grid ColumnDefinitions="*,Auto" Margin="5,4">
+                  <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Grid.Column="1" Text="{Binding Summary}" Foreground="#68717B" FontSize="11" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <TextBlock Grid.Row="2" Text="{DynamicResource Recent}" FontWeight="SemiBold"
+                     Margin="12,8,12,5" />
+          <ListBox Grid.Row="3" ItemsSource="{Binding RecentSessions}" SelectionChanged="RecentSelected"
+                   Background="Transparent" BorderThickness="0" Margin="5,0,5,8">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="local:RecentItemViewModel">
+                <StackPanel Margin="5,3">
+                  <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontSize="11" />
+                  <TextBlock Text="{Binding Timestamp}" Foreground="#7A838C" FontSize="10" />
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+      </Border>
+
+      <GridSplitter Grid.Column="1" Background="#D3D7D9" ResizeDirection="Columns" />
+
+      <Grid Grid.Column="2" RowDefinitions="Auto,*" Background="White">
+        <Border Grid.Row="0" Background="#F8F9F7" BorderBrush="#D3D7D9" BorderThickness="0,0,0,1"
+                Padding="8,6">
+          <Grid ColumnDefinitions="180,Auto,Auto,Auto,Auto,18,Auto,Auto,*,Auto,Auto" ColumnSpacing="6">
+            <TextBox x:Name="SearchBox" Grid.Column="0" Classes="compact" Text="{Binding SearchText, Mode=TwoWay}"
+                     PlaceholderText="{DynamicResource Search}" />
+            <CheckBox Grid.Column="1" Content="{DynamicResource Exact}" IsChecked="{Binding SearchExact}" />
+            <CheckBox Grid.Column="2" Content="{DynamicResource CaseSensitive}" IsChecked="{Binding SearchCaseSensitive}" />
+            <CheckBox Grid.Column="3" Content="{DynamicResource Regex}" IsChecked="{Binding SearchRegex}" />
+            <Button Grid.Column="4" Content="{DynamicResource Search}" Command="{Binding SearchCommand}" />
+            <Button Grid.Column="6" Content="&#x2190;" Command="{Binding PreviousChangeCommand}"
+                    ToolTip.Tip="{DynamicResource Previous}" />
+            <Button Grid.Column="7" Content="&#x2192;" Command="{Binding NextChangeCommand}"
+                    ToolTip.Tip="{DynamicResource Next}" />
+            <TextBlock Grid.Column="8" Text="{Binding SearchSummary}" VerticalAlignment="Center"
+                       Foreground="#68717B" HorizontalAlignment="Right" />
+            <Button Grid.Column="9" Content="{DynamicResource CopyTsv}" Click="CopyTsv" />
+            <Button Grid.Column="10" Content="{DynamicResource CopyCsv}" Click="CopyCsv" />
+          </Grid>
+        </Border>
+        <local:VirtualDiffGrid x:Name="DiffGrid" Grid.Row="1" Document="{Binding GridDocument}"
+                               AutomationProperties.Name="{DynamicResource ComparisonGrid}" />
+      </Grid>
+
+      <GridSplitter Grid.Column="3" Background="#D3D7D9" ResizeDirection="Columns" />
+
+      <Border Grid.Column="4" Background="#F8F9F6" BorderBrush="#D3D7D9" BorderThickness="1,0,0,0">
+        <TabControl>
+          <TabItem Header="{DynamicResource Inspector}">
+            <ScrollViewer>
+              <StackPanel Margin="12" Spacing="8">
+                <TextBlock Text="{Binding Inspector.Address}" FontSize="17" FontWeight="SemiBold" />
+                <TextBlock Classes="label" Text="{DynamicResource Base}" />
+                <TextBox Text="{Binding Inspector.BaseValue}" IsReadOnly="True" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{DynamicResource Local}" Foreground="#197044" />
+                <TextBox Text="{Binding Inspector.LocalValue}" IsReadOnly="True" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{DynamicResource Remote}" Foreground="#A13055" />
+                <TextBox Text="{Binding Inspector.RemoteValue}" IsReadOnly="True" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{DynamicResource Result}" />
+                <TextBox Text="{Binding Inspector.ResultValue}" IsReadOnly="True" TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="70,*" RowDefinitions="Auto,Auto" RowSpacing="6">
+                  <TextBlock Classes="label" Text="{DynamicResource Type}" />
+                  <TextBlock Grid.Column="1" Text="{Binding Inspector.ValueType}" />
+                  <TextBlock Grid.Row="1" Classes="label" Text="{DynamicResource Formula}" />
+                  <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Inspector.Formula}" TextWrapping="Wrap" />
+                </Grid>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+          <TabItem Header="{DynamicResource Conflicts}" IsVisible="{Binding IsMergeMode}">
+            <Grid RowDefinitions="160,Auto,*" Margin="8">
+              <ListBox Grid.Row="0" ItemsSource="{Binding Conflicts}"
+                       SelectedItem="{Binding SelectedConflict, Mode=TwoWay}">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="local:ConflictItemViewModel">
+                    <Grid ColumnDefinitions="70,*,Auto" Margin="4,3">
+                      <TextBlock Text="{Binding Location}" FontWeight="SemiBold" />
+                      <TextBlock Grid.Column="1" Text="{Binding Kind}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Column="2" Text="{Binding ResolutionText}" Foreground="#68717B" FontSize="10" />
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <Grid Grid.Row="1" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="6" RowSpacing="6"
+                    Margin="0,8">
+                <Button Content="{DynamicResource UseLocal}" Command="{Binding UseLocalCommand}" />
+                <Button Grid.Column="1" Content="{DynamicResource UseRemote}" Command="{Binding UseRemoteCommand}" />
+                <Button Grid.Row="1" Content="{DynamicResource UseBoth}" Command="{Binding UseBothCommand}" />
+                <Button Grid.Row="1" Grid.Column="1" Content="{DynamicResource UseCustom}"
+                        Command="{Binding UseCustomCommand}" />
+              </Grid>
+              <TextBox Grid.Row="2" Classes="compact" Text="{Binding CustomValue, Mode=TwoWay}"
+                       PlaceholderText="{DynamicResource CustomValue}" AcceptsReturn="True" TextWrapping="Wrap" />
+            </Grid>
+          </TabItem>
+        </TabControl>
+      </Border>
+    </Grid>
+
+    <Border Grid.Row="4" Background="#E9ECEA" BorderBrush="#D3D7D9" BorderThickness="0,1,0,0"
+            Padding="10,4">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#5C6570" />
+        <TextBlock Grid.Column="1" Text="{Binding GridDocument.Title}" FontSize="11" Foreground="#5C6570" />
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

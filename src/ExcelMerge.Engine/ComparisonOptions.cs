@@ -59,6 +59,9 @@ public sealed record ThreeWayMergeOptions
 {
     public WorksheetComparisonOptions Comparison { get; init; } = new();
 
+    /// <summary>A session-stable worksheet pairing identifier used by conflicts and writers.</summary>
+    public string? SheetGroupId { get; init; }
+
     /// <summary>First deterministic conflict identifier allocated by this operation.</summary>
     public long FirstConflictId { get; init; }
 }

@@ -2,30 +2,6 @@ using ExcelMerge.Domain;
 
 namespace ExcelMerge.Engine;
 
-public enum MergeDecisionScope
-{
-    Cell,
-    Row,
-    RowMetadata,
-    Sheet,
-    SheetMetadata,
-}
-
-public enum AutomaticMergeKind
-{
-    UseLocal,
-    UseRemote,
-    UseEither,
-    Delete,
-}
-
-/// <summary>A non-conflicting result choice. Source choices include value, style, and structure.</summary>
-public readonly record struct AutomaticMergeDecision(
-    MergeDecisionScope Scope,
-    AutomaticMergeKind Kind,
-    ConflictLocation Location,
-    CellValue? ResultValue = null);
-
 public enum MergeViewRowState
 {
     Unchanged,
@@ -48,12 +24,14 @@ public readonly record struct MergeViewRow(
 
 /// <summary>BASE-relative changes and conflict data for one selected sheet.</summary>
 public sealed record ThreeWayMergeResult(
+    string SheetGroupId,
     SheetChange LocalChange,
     SheetChange RemoteChange,
     ReadOnlyMemory<ConflictRecord> Conflicts,
     ReadOnlyMemory<CellResolution> CellResolutions,
     ReadOnlyMemory<RowResolution> RowResolutions,
     ReadOnlyMemory<AutomaticMergeDecision> AutomaticDecisions,
+    ReadOnlyMemory<MergeRowMapping> RowMappings,
     ReadOnlyMemory<MergeViewRow> ViewRows,
     long NextConflictId)
 {

@@ -13,6 +13,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\ExcelMerge.Application\ExcelMerge.Application.csproj" />
+    <ProjectReference Include="..\..\src\ExcelMerge.Cli\ExcelMerge.Cli.csproj" />
+    <ProjectReference Include="..\..\src\ExcelMerge.Delimited\ExcelMerge.Delimited.csproj" />
+    <ProjectReference Include="..\..\src\ExcelMerge.Desktop\ExcelMerge.Desktop.csproj" />
     <ProjectReference Include="..\..\src\ExcelMerge.Domain\ExcelMerge.Domain.csproj" />
     <ProjectReference Include="..\..\src\ExcelMerge.Engine\ExcelMerge.Engine.csproj" />
     <ProjectReference Include="..\..\src\ExcelMerge.OpenXml\ExcelMerge.OpenXml.csproj" />

@@ -1,4 +1,5 @@
 using System.Runtime.ExceptionServices;
+using System.Text;
 
 namespace ExcelMerge.Storage;
 
@@ -9,8 +10,10 @@ public sealed class Workspace : IDisposable, IAsyncDisposable
 {
     private readonly WorkspaceSettings _settings;
     private readonly HashSet<ChunkedCellStore> _stores = new();
+    private readonly HashSet<ChunkedTextStore> _textStores = new();
     private readonly object _sync = new();
     private readonly Lazy<Task> _disposeTask;
+    private readonly FileStream _activeLease;
     private int _nextStoreNumber;
     private bool _disposeRequested;
 
@@ -22,12 +25,36 @@ public sealed class Workspace : IDisposable, IAsyncDisposable
         Directory.CreateDirectory(_settings.BaseDirectory);
         DirectoryPath = CreateUniqueDirectory(_settings.BaseDirectory, _settings.DirectoryPrefix);
         Options = requestedOptions with { BaseDirectory = _settings.BaseDirectory };
-        _disposeTask = new Lazy<Task>(DisposeCoreAsync, LazyThreadSafetyMode.ExecutionAndPublication);
+        OwnershipMarkerPath = Path.Combine(DirectoryPath, _settings.OwnershipMarkerFileName);
+        ActiveLeasePath = Path.Combine(DirectoryPath, _settings.ActiveLeaseFileName);
+
+        var disposeTask = new Lazy<Task>(DisposeCoreAsync, LazyThreadSafetyMode.ExecutionAndPublication);
+        FileStream? activeLease = null;
+        try
+        {
+            activeLease = CreateActiveLease(ActiveLeasePath);
+            File.WriteAllBytes(
+                OwnershipMarkerPath,
+                Encoding.UTF8.GetBytes(_settings.OwnershipMarkerValue));
+            _activeLease = activeLease;
+            _disposeTask = disposeTask;
+            activeLease = null;
+        }
+        catch
+        {
+            activeLease?.Dispose();
+            TryDeleteDirectory(DirectoryPath);
+            throw;
+        }
     }
 
     public WorkspaceOptions Options { get; }
 
     public string DirectoryPath { get; }
+
+    public string OwnershipMarkerPath { get; }
+
+    public string ActiveLeasePath { get; }
 
     public bool IsDisposed
     {
@@ -127,6 +154,38 @@ public sealed class Workspace : IDisposable, IAsyncDisposable
         return ValueTask.FromResult(CreateCellStore(name));
     }
 
+    public ChunkedTextStore CreateTextStore(string? name = null)
+    {
+        lock (_sync)
+        {
+            ThrowIfDisposedLocked();
+            name ??= $"text-{_nextStoreNumber++:D4}";
+            ValidateStoreName(name);
+            var storeDirectory = Path.Combine(DirectoryPath, name);
+            if (Directory.Exists(storeDirectory) || File.Exists(storeDirectory))
+                throw new IOException($"A workspace entry named '{name}' already exists.");
+
+            Directory.CreateDirectory(storeDirectory);
+            try
+            {
+                var settings = new ChunkedTextStoreSettings(
+                    _settings.ChunkSizeBytes,
+                    _settings.MaximumRowSizeBytes,
+                    Math.Max(32, _settings.RowCacheCapacity),
+                    Math.Min(_settings.RowCacheByteLimit, 16L * 1024 * 1024),
+                    DeleteOnDispose: true);
+                var store = new ChunkedTextStore(storeDirectory, settings, UnregisterTextStore);
+                _textStores.Add(store);
+                return store;
+            }
+            catch
+            {
+                TryDeleteDirectory(storeDirectory);
+                throw;
+            }
+        }
+    }
+
     public void Dispose() => _disposeTask.Value.GetAwaiter().GetResult();
 
     public ValueTask DisposeAsync() => new(_disposeTask.Value);
@@ -134,10 +193,12 @@ public sealed class Workspace : IDisposable, IAsyncDisposable
     private async Task DisposeCoreAsync()
     {
         ChunkedCellStore[] stores;
+        ChunkedTextStore[] textStores;
         lock (_sync)
         {
             _disposeRequested = true;
             stores = _stores.ToArray();
+            textStores = _textStores.ToArray();
         }
 
         List<Exception>? errors = null;
@@ -151,6 +212,27 @@ public sealed class Workspace : IDisposable, IAsyncDisposable
             {
                 (errors ??= []).Add(exception);
             }
+        }
+
+        foreach (var store in textStores)
+        {
+            try
+            {
+                await store.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                (errors ??= []).Add(exception);
+            }
+        }
+
+        try
+        {
+            _activeLease.Dispose();
+        }
+        catch (Exception exception)
+        {
+            (errors ??= []).Add(exception);
         }
 
         if (_settings.DeleteOnDispose)
@@ -240,6 +322,37 @@ public sealed class Workspace : IDisposable, IAsyncDisposable
         throw new IOException("Could not allocate a unique workspace directory.");
     }
 
+    private void UnregisterTextStore(ChunkedTextStore store)
+    {
+        lock (_sync)
+        {
+            _textStores.Remove(store);
+        }
+    }
+
+    private static FileStream CreateActiveLease(string path)
+    {
+        var stream = new FileStream(
+            path,
+            FileMode.CreateNew,
+            FileAccess.ReadWrite,
+            FileShare.None);
+
+        try
+        {
+            var lease = Encoding.UTF8.GetBytes($"{Environment.ProcessId}\n{DateTimeOffset.UtcNow:O}");
+            stream.Write(lease);
+            stream.Flush();
+            stream.Position = 0;
+            return stream;
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+    }
+
     private static void ValidateStoreName(string name)
     {
         if (string.IsNullOrWhiteSpace(name) ||
@@ -267,15 +380,19 @@ public sealed class Workspace : IDisposable, IAsyncDisposable
         }
     }
 
-    private static void MakeTreeWritable(string rootPath)
+    internal static void MakeTreeWritable(
+        string rootPath,
+        CancellationToken cancellationToken = default)
     {
         var directories = new Stack<string>();
         directories.Push(rootPath);
 
         while (directories.TryPop(out var directory))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var attributes = File.GetAttributes(entry);
                 if ((attributes & FileAttributes.ReparsePoint) != 0)
                 {

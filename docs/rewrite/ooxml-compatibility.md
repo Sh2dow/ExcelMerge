@@ -67,3 +67,5 @@ The writer must reject the operation before committing output when it cannot saf
 - Untouched part content hashes are identical to LOCAL.
 - Changed cells, formulas, styles, row geometry, merged ranges, and relationships match the merge plan.
 - Saving is atomic: cancellation or validation failure leaves the destination unchanged.
+
+For large worksheet and shared-string parts, validation is bounded: each row or shared-string item is streamed through `OpenXmlValidator`, then the complete package graph and remaining content are validated in a shadow package whose already-streamed collections are empty. Ordinary packages continue through whole-package SDK validation directly.

@@ -38,3 +38,30 @@
 - Generated corpora include 200,000-cell smoke, 1,000,000-cell standard, and 5,000,000-cell capacity cases.
 - Phase zero records elapsed-time baselines before hard time limits are fixed.
 - Pull requests may not regress standard-case throughput by more than 10 percent or allocations by more than 5 percent without an approved architecture note.
+
+## Phase-Zero Baseline
+
+Recorded 2026-07-31 on Windows 10, Intel Core i7-11700F, NVMe storage, .NET SDK 10.0.302, and .NET runtime 10.0.10.
+
+| Scenario | Cells | Result |
+| --- | ---: | ---: |
+| Metadata-only load | 200,000 | 2.50 ms |
+| Dense indexing, repeated strings | 200,000 | 470 ms |
+| Dense indexing, unique strings | 200,000 | 1.91 s |
+| Sparse indexing, repeated strings | 200,000 | 618 ms |
+| Sparse indexing, unique strings | 200,000 | 2.11 s |
+| Dense viewport fetch | 200,000 | 4.08 ms |
+| Sparse viewport fetch | 200,000 | 1.58 ms |
+| Transactional validated write | 200,000 | 1.56 s |
+| Row alignment | 200,000 | 85.8 ms |
+| Two-way diff | 200,000 | 88.3 ms |
+| Three-way conflict scan | 200,000 | 159 ms |
+| Capacity indexing, dense/repeated | 5,000,000 | 12.95 s |
+| Capacity indexing, dense/unique | 5,000,000 | 49.52 s |
+| Capacity indexing, sparse/repeated | 5,000,000 | 16.75 s |
+| Capacity indexing, sparse/unique | 5,000,000 | 54.58 s |
+| Capacity validated writer | 5,000,000 | 47.47 s |
+
+The worst capacity probe sampled a 12.6 MB managed peak for reader indexing and a 1.06 GB managed peak for the validated writer. Cumulative BenchmarkDotNet allocation is intentionally reported separately from live-heap peak. These short/dry runs establish comparison points; they do not yet define hard elapsed-time gates.
+
+Use `EXCELMERGE_BENCHMARK_SCALES=standard`, `capacity`, or `all` to select generated corpus sizes. Run `--capacity-probe` for the sampled live-memory gate.

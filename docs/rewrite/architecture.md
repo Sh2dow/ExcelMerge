@@ -25,7 +25,7 @@
 
 1. Read workbook metadata and package relationships without loading worksheet XML.
 2. Stream selected worksheets into a temporary indexed cell store.
-3. Publish rows to the viewport as soon as the first chunks are indexed.
+3. Stream shared strings into a fixed-width, disk-backed UTF-8 index and publish rows to the viewport as worksheet chunks are indexed.
 4. Calculate stable row signatures and exact equality data in the background.
 5. Produce compact row mappings and change runs instead of one observable object per cell.
 6. Store conflict resolutions independently from presentation state.
@@ -47,13 +47,12 @@
 
 ## UI Composition
 
-- `AppShellWindow`: application commands and comparison documents.
-- `ComparisonWorkspaceView`: the complete comparison workflow.
-- `WorkbookNavigatorView`: worksheet pairing, filters, and conflict status.
-- `VirtualDiffGrid`: one custom-drawn control with shared geometry for both sides.
-- `CellInspectorView`: BASE, LOCAL, REMOTE, RESULT, formula, type, and inline text details.
-- `ConflictResolverView`: persistent keyboard-driven resolution controls.
-- `SettingsWindow`: language, appearance, performance, key profiles, and shortcuts.
-- `DiagnosticsWindow`: operation details and privacy-safe logs.
+- `MainWindow`: application commands and the complete comparison workflow.
+- Main-window navigator region: worksheet selection, recent sessions, filters, and conflict status.
+- `VirtualDiffGrid`: one custom-drawn control with shared geometry, caches, and a compact change map for both sides.
+- Main-window inspector region: BASE, LOCAL, REMOTE, RESULT, formula, and type details.
+- Main-window conflict region: persistent keyboard-driven cell and row resolution controls.
+- `SettingsWindow`: language, appearance, grid performance, and key-column comparison options.
+- `DiagnosticsWindow`: bounded operation details and privacy-safe logs.
 
 Code-behind is limited to rendering, hit testing, native drag/drop, and window integration. Application behavior belongs in view models and services.

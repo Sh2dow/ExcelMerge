@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <IsAotCompatible>true</IsAotCompatible>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.0" />
@@ -14,5 +16,9 @@
   <ItemGroup>
     <ProjectReference Include="..\ExcelMerge.Application\ExcelMerge.Application.csproj" />
     <ProjectReference Include="..\ExcelMerge.Domain\ExcelMerge.Domain.csproj" />
+    <ProjectReference Include="..\ExcelMerge.Engine\ExcelMerge.Engine.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\app.ico" />
   </ItemGroup>
 </Project>

@@ -8,92 +8,102 @@ using ExcelMerge.Storage;
 
 namespace ExcelMerge.OpenXml;
 
-internal sealed class OpenXmlReaderSharedStrings
+internal sealed class OpenXmlReaderSharedStrings : IDisposable
 {
-    private readonly string[] _values;
+    private readonly ChunkedTextStore? _store;
 
-    private OpenXmlReaderSharedStrings(string[] values)
+    private OpenXmlReaderSharedStrings(ChunkedTextStore? store)
     {
-        _values = values;
+        _store = store;
     }
 
-    public long Count => _values.LongLength;
+    public long Count => _store?.Count ?? 0;
 
     public static OpenXmlReaderSharedStrings Load(
         SharedStringTablePart? part,
+        Workspace workspace,
         string sourcePath,
         Action<long>? reportProgress,
         CancellationToken cancellationToken)
     {
         if (part is null)
         {
-            return new OpenXmlReaderSharedStrings([]);
+            return new OpenXmlReaderSharedStrings(null);
         }
 
-        var values = new List<string>();
-        var sawRoot = false;
+        var store = workspace.CreateTextStore();
         try
         {
-            using var reader = DocumentFormat.OpenXml.OpenXmlReader.Create(part);
-            while (reader.Read())
+            var sawRoot = false;
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!reader.IsStartElement)
+                using var reader = DocumentFormat.OpenXml.OpenXmlReader.Create(part);
+                while (reader.Read())
                 {
-                    continue;
-                }
-
-                if (reader.Depth == 0)
-                {
-                    sawRoot = reader.ElementType == typeof(SharedStringTable);
-                    if (!sawRoot)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!reader.IsStartElement)
                     {
-                        throw InvalidTable(sourcePath, "The shared-string part has an invalid root element.");
+                        continue;
+                    }
+
+                    if (reader.Depth == 0)
+                    {
+                        sawRoot = reader.ElementType == typeof(SharedStringTable);
+                        if (!sawRoot)
+                        {
+                            throw InvalidTable(sourcePath, "The shared-string part has an invalid root element.");
+                        }
+                    }
+
+                    if (reader.ElementType != typeof(SharedStringItem))
+                    {
+                        continue;
+                    }
+
+                    if (reader.LoadCurrentElement() is not SharedStringItem item)
+                    {
+                        throw InvalidTable(sourcePath, "A shared-string item could not be read.");
+                    }
+
+                    store.Append(ExtractText(item, cancellationToken), cancellationToken);
+                    if ((store.Count & 4095) == 0)
+                    {
+                        reportProgress?.Invoke(store.Count);
                     }
                 }
-
-                if (reader.ElementType != typeof(SharedStringItem))
-                {
-                    continue;
-                }
-
-                if (reader.LoadCurrentElement() is not SharedStringItem item)
-                {
-                    throw InvalidTable(sourcePath, "A shared-string item could not be read.");
-                }
-
-                values.Add(ExtractText(item, cancellationToken));
-                if ((values.Count & 4095) == 0)
-                {
-                    reportProgress?.Invoke(values.Count);
-                }
             }
+            catch (OpenXmlReaderException)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception) when (exception is InvalidDataException or FormatException)
+            {
+                throw InvalidTable(sourcePath, "The shared-string table is invalid.", exception);
+            }
+
+            if (!sawRoot)
+            {
+                throw InvalidTable(sourcePath, "The shared-string part is empty.");
+            }
+
+            store.Flush();
+            reportProgress?.Invoke(store.Count);
+            return new OpenXmlReaderSharedStrings(store);
         }
-        catch (OpenXmlReaderException)
+        catch
         {
+            store.Dispose();
             throw;
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception exception) when (exception is InvalidDataException or FormatException)
-        {
-            throw InvalidTable(sourcePath, "The shared-string table is invalid.", exception);
-        }
-
-        if (!sawRoot)
-        {
-            throw InvalidTable(sourcePath, "The shared-string part is empty.");
-        }
-
-        reportProgress?.Invoke(values.Count);
-        return new OpenXmlReaderSharedStrings(values.ToArray());
     }
 
     public string Get(int index, string sourcePath, string sheetId)
     {
-        if ((uint)index >= (uint)_values.Length)
+        if (index < 0 || index >= Count || _store is null)
         {
             throw new OpenXmlReaderException(
                 OpenXmlReaderError.InvalidSharedStringTable,
@@ -102,8 +112,10 @@ internal sealed class OpenXmlReaderSharedStrings
                 sheetId);
         }
 
-        return _values[index];
+        return _store.Read(index);
     }
+
+    public void Dispose() => _store?.Dispose();
 
     public static string ExtractText(
         OpenXmlCompositeElement container,

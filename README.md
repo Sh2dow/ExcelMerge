@@ -1,146 +1,142 @@
 # ExcelMerge
 
-ExcelMerge is a visual diff tool for Excel and delimited text files. The desktop UI is being migrated from WPF to [Avalonia](https://avaloniaui.net/) so the merge workflow can be developed on a modern, cross-platform foundation.
+ExcelMerge compares and three-way merges `.xlsx`, `.csv`, and `.tsv` files. The rewrite is built on .NET 10, Avalonia 12, the Open XML SDK, and disk-backed indexes designed for multi-million-cell workbooks.
 
-## Current Features
+The legacy projects remain in this repository as references. New development uses `ExcelMerge.Rewrite.slnx` and the projects under `src/`.
 
-- Compare `.xlsx`, `.xls`, `.csv`, and `.tsv` files
-- Select a worksheet independently on each side
-- View cell changes in synchronized side-by-side grids
-- Highlight added, removed, and modified cells
-- Hide unchanged rows
-- Navigate to the previous or next changed row
-- Drop one file onto LOCAL or REMOTE, or drop two files together to open both sides
-- Resolve three-way conflicts with Use LOCAL, Use REMOTE, or KEEP BOTH
-- Track unresolved conflicts across worksheets and jump directly to each sheet
-- Navigate conflict cells precisely across worksheets and track the remaining unresolved count
-- Adjust table font size and collapse the file-input drawer to maximize the comparison area
-- Generate and save a merged RESULT `.xlsx` or `.xls` workbook
-- Preserve LOCAL cell styles, formulas, row heights, column widths, and unchanged workbook content when saving a merge
-- Launch as a standalone application or a Git diff tool
+## Features
 
-Merge mode validates BASE, displays the LOCAL/REMOTE diff, auto-merges non-conflicting cells, and applies resolved values to a copy of the LOCAL workbook instead of rebuilding every sheet. Existing `.xlsx` sheets are patched at the OOXML cell level so untouched inline strings and package parts remain intact. REMOTE-only sheets copy their cell styles and basic sheet layout into RESULT. KEEP BOTH duplicates the conflicting row in RESULT.
+- Two-way workbook comparison and BASE/LOCAL/REMOTE three-way merge
+- Typed value, formula, style, row metadata, and structural conflict detection
+- LOCAL-based transactional `.xlsx` output with atomic replacement
+- REMOTE style dependency mapping, remote worksheet graph import, and BOTH row insertion
+- Formula, defined-name, table, validation, comment, drawing, and worksheet-coordinate transforms
+- RFC 4180 CSV and TSV reading/writing with UTF-8 and UTF-16 input support
+- Virtual synchronized Desktop grid with search, change navigation, conflict resolution, copy, recent sessions, and key columns
+- English, Japanese, and Simplified Chinese Desktop resources
+- Headless CLI commands and a Git merge-driver contract
+- Streaming worksheet/shared-string ingestion with fixed-width disk indexes and bounded caches
+
+Legacy `.xls` workbooks are rejected without modification. Convert them to `.xlsx` before comparison or merge. Encrypted, signed, malformed, or unsupported packages fail closed.
 
 ## Requirements
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- Windows, macOS, or Linux supported by Avalonia
+- .NET 10 SDK
+- A platform supported by Avalonia for framework-dependent Desktop builds
+- Windows x64 for the Native AOT publish commands below
 
-## Build
-
-```powershell
-dotnet build ExcelMerge.sln --configuration Release
-```
-
-## Run
-
-Open the application and choose two files:
+## Build And Test
 
 ```powershell
-dotnet run --project ExcelMerge.Avalonia
+dotnet build ExcelMerge.Rewrite.slnx --configuration Release
+dotnet test tests/ExcelMerge.Rewrite.Tests/ExcelMerge.Rewrite.Tests.csproj --configuration Release
 ```
 
-Open a comparison directly:
+## Desktop
+
+Start the application:
 
 ```powershell
-dotnet run --project ExcelMerge.Avalonia -- diff -l local.xlsx -r remote.xlsx
+dotnet run --project src/ExcelMerge.Desktop/ExcelMerge.Desktop.csproj
 ```
 
-Start with all three Git merge inputs:
+Open a comparison or merge directly:
 
 ```powershell
-dotnet run --project ExcelMerge.Avalonia -- merge -b base.xlsx -l local.xlsx -r remote.xlsx
+dotnet run --project src/ExcelMerge.Desktop/ExcelMerge.Desktop.csproj -- diff local.xlsx remote.xlsx
+dotnet run --project src/ExcelMerge.Desktop/ExcelMerge.Desktop.csproj -- merge base.xlsx local.xlsx remote.xlsx
+dotnet run --project src/ExcelMerge.Desktop/ExcelMerge.Desktop.csproj -- merge base.xlsx local.xlsx remote.xlsx result.xlsx
 ```
 
-Long options and positional paths are also accepted:
+The Desktop saves a merge only after every conflict is resolved. LOCAL is the visual and package baseline.
+
+## CLI
 
 ```powershell
-dotnet run --project ExcelMerge.Avalonia -- merge --base-path base.xlsx --local-path local.xlsx --remote-path remote.xlsx
-dotnet run --project ExcelMerge.Avalonia -- merge base.xlsx local.xlsx remote.xlsx
+dotnet run --project src/ExcelMerge.Cli/ExcelMerge.Cli.csproj -- diff LOCAL REMOTE
+dotnet run --project src/ExcelMerge.Cli/ExcelMerge.Cli.csproj -- merge BASE LOCAL REMOTE --output RESULT
+dotnet run --project src/ExcelMerge.Cli/ExcelMerge.Cli.csproj -- merge-driver BASE OURS THEIRS MARKER_SIZE REPOSITORY_PATH
 ```
 
-The Git merge-driver entry point accepts Git's five standard placeholders:
+`diff` returns `0` for equal inputs and `1` for differences. `merge` writes only conflict-free automatic merges. Exit code `1` also represents unresolved conflicts, cancellation, or runtime failure; invalid command lines return `2`.
 
-```powershell
-ExcelMerge.Avalonia.exe merge-driver <base> <ours-output> <theirs> <marker-size> <repository-path>
-```
+## Git Integration
 
-The equivalent named merge options are `--base`, `--ours`, `--theirs`, `--output`, `--marker-size`, and `--path`.
-
-The previous diff aliases `-s/--src-path` and `-d/--dst-path` remain supported.
-
-## Git Difftool
-
-Build or publish the Avalonia application, then register its executable in `.gitconfig`:
+Register the Desktop as a visual difftool:
 
 ```ini
 [diff]
     tool = ExcelMerge
 
 [difftool "ExcelMerge"]
-    cmd = C:/path/to/ExcelMerge.Avalonia.exe diff -s "$LOCAL" -d "$REMOTE"
+    cmd = "C:/Tools/ExcelMerge/ExcelMerge.Desktop.exe" diff "$LOCAL" "$REMOTE"
 ```
 
-Run it with:
-
-```powershell
-git difftool -t ExcelMerge
-```
-
-## Git Merge Driver
-
-Add the file types to the repository's `.gitattributes`:
+Register the headless CLI merge driver:
 
 ```gitattributes
 *.xlsx -text merge=excelmerge
-*.xls -text merge=excelmerge
+*.csv text merge=excelmerge
+*.tsv text merge=excelmerge
 ```
-
-Publish the Avalonia application, then register the driver. This PowerShell command preserves the quoting required for paths containing spaces:
 
 ```powershell
 git config merge.excelmerge.name "Excel workbook merge"
-git config merge.excelmerge.driver '"C:/Tools/ExcelMerge/ExcelMerge.Avalonia.exe" merge-driver %O %A %B %L %P'
+git config merge.excelmerge.driver '"C:/Tools/ExcelMerge/ExcelMerge.Cli.exe" merge-driver %O %A %B %L %P'
 ```
 
-Git supplies BASE as `%O`, the current version and required output as `%A`, the incoming version as `%B`, the conflict marker size as `%L`, and the repository path as `%P`. ExcelMerge writes a successful result over `%A`. If there are no cell conflicts, review the automatic merge preview and select **Auto Merge**. Otherwise, resolve the conflicts in the UI and select **Complete Git merge**.
+Git supplies BASE as `%O`, the required output/current version as `%A`, incoming content as `%B`, marker size as `%L`, and repository path as `%P`. A successful merge atomically replaces `%A`; unresolved conflicts leave it unchanged and return `1`.
 
-Merge-driver exit codes are:
+Register Desktop as the conflict-resolution mergetool. The fifth argument is Git's `$MERGED` destination, so **Save result** writes directly back to the worktree file:
 
-- `0`: the merged workbook was written successfully
-- `1`: the merge was cancelled, left unresolved, or failed at runtime
-- `2`: the command-line arguments are invalid
+```powershell
+git config merge.tool excelmerge
+git config mergetool.excelmerge.cmd '\"C:/Tools/ExcelMerge/ExcelMerge.Desktop.exe\" merge \"$BASE\" \"$LOCAL\" \"$REMOTE\" \"$MERGED\"'
+git config mergetool.excelmerge.trustExitCode true
+```
+
+After an automatic driver conflict, run `git mergetool --tool=excelmerge`. Resolving and saving returns `0`; closing without saving returns `1`, so Git leaves the file unresolved.
+
+## Native AOT
+
+```powershell
+dotnet publish src/ExcelMerge.Cli/ExcelMerge.Cli.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true
+dotnet publish src/ExcelMerge.Desktop/ExcelMerge.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true
+```
+
+Desktop bindings are compiled so trimming and AOT do not depend on reflection binding.
+
+## Benchmarks
+
+The default BenchmarkDotNet run uses the 200,000-cell smoke corpus:
+
+```powershell
+dotnet run --project benchmarks/ExcelMerge.Rewrite.Benchmarks/ExcelMerge.Rewrite.Benchmarks.csproj -c Release -- --filter "*" --join
+```
+
+Select larger generated corpora with `EXCELMERGE_BENCHMARK_SCALES=standard`, `capacity`, or `all`. The capacity probe measures sampled live memory for 5,000,000 sparse cells with unique shared strings:
+
+```powershell
+$env:EXCELMERGE_BENCHMARK_SCALES = "capacity"
+dotnet run --project benchmarks/ExcelMerge.Rewrite.Benchmarks/ExcelMerge.Rewrite.Benchmarks.csproj -c Release -- --filter "*OpenXmlIndexingBenchmarks*" --job Dry
+dotnet run --project benchmarks/ExcelMerge.Rewrite.Benchmarks/ExcelMerge.Rewrite.Benchmarks.csproj -c Release -- --capacity-probe
+```
 
 ## Project Layout
 
-- `ExcelMerge.Avalonia`: current Avalonia desktop UI
-- `ExcelMerge`: workbook reader and worksheet diff model
-- `NetDiff`: sequence diff engine
-- `ExcelMerge.Tests`: workbook and worksheet regression tests
-- `NetDiff/NetDiff.Test`: diff engine regression tests
+- `ExcelMerge.Domain`: immutable workbook, change, conflict, resolution, and merge-plan contracts
+- `ExcelMerge.Engine`: alignment, two-way diff, and three-way merge planning
+- `ExcelMerge.Storage`: workspaces and chunked row/text indexes
+- `ExcelMerge.OpenXml`: streaming `.xlsx` adapter and transactional fidelity writer
+- `ExcelMerge.Delimited`: CSV/TSV adapter
+- `ExcelMerge.Application`: sessions, orchestration, progress, settings, and recent work
+- `ExcelMerge.Desktop`: Avalonia application
+- `ExcelMerge.Cli`: command-line and Git driver application
+- `tests/ExcelMerge.Rewrite.Tests`: rewrite regression suite
+- `benchmarks/ExcelMerge.Rewrite.Benchmarks`: generated performance corpora and benchmarks
 
-The legacy `ExcelMerge.GUI`, `FastWpfGrid`, `ExcelMerge.Installer`, and `ExcelMerge.ShellExtension` directories remain as migration references but are excluded from the default solution.
+External commands, the legacy PowerShell console, and log templates are intentionally deferred. See `docs/rewrite/status.md` for verified gates and remaining manual compatibility checks.
 
 ## License
 
-MIT License
-
-Copyright (c) 2017 skanmera
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+MIT License. Copyright (c) 2017 skanmera.

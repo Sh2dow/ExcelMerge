@@ -16,6 +16,12 @@ public sealed class ThreeWayMergeEngine
 
         options ??= new ThreeWayMergeOptions();
         ArgumentNullException.ThrowIfNull(options.Comparison);
+        if (options.SheetGroupId is not null && string.IsNullOrWhiteSpace(options.SheetGroupId))
+        {
+            throw new ArgumentException(
+                "The worksheet group identifier cannot be empty.",
+                nameof(ThreeWayMergeOptions.SheetGroupId));
+        }
         ArgumentOutOfRangeException.ThrowIfNegative(options.FirstConflictId);
         if (options.FirstConflictId == long.MaxValue)
         {
@@ -70,7 +76,7 @@ public sealed class ThreeWayMergeEngine
             context,
             cancellationToken);
         var accumulator = new MergeAccumulator(options.FirstConflictId);
-        var sheetId = materializedBase?.Metadata.Id ??
+        var sheetId = options.SheetGroupId ?? materializedBase?.Metadata.Id ??
             materializedLocal?.Metadata.Id ??
             materializedRemote!.Metadata.Id;
 
@@ -108,6 +114,7 @@ public sealed class ThreeWayMergeEngine
         }
 
         return accumulator.CreateResult(
+            sheetId,
             localDiff.Result.SheetChange,
             remoteDiff.Result.SheetChange);
     }
@@ -416,7 +423,7 @@ public sealed class ThreeWayMergeEngine
         }
 
         var conflictCount = accumulator.ConflictCount - conflictStart;
-        accumulator.AddViewRow(new MergeViewRow(
+        accumulator.AddRow(new MergeViewRow(
             null,
             localRowIndex,
             remoteRowIndex,
@@ -522,9 +529,8 @@ public sealed class ThreeWayMergeEngine
             : hasDecision || localKind != ChangeKind.Unchanged || remoteKind != ChangeKind.Unchanged
                 ? MergeViewRowState.Automatic
                 : MergeViewRowState.Unchanged;
-        if (state != MergeViewRowState.Unchanged || context.Options.Source.IncludeUnchangedViewRows)
-        {
-            accumulator.AddViewRow(new MergeViewRow(
+        accumulator.AddRow(
+            new MergeViewRow(
                 baseRow.RowIndex,
                 localRowIndex,
                 remoteRowIndex,
@@ -532,8 +538,8 @@ public sealed class ThreeWayMergeEngine
                 remoteKind,
                 state,
                 conflictCount == 0 ? -1 : conflictStart,
-                conflictCount));
-        }
+                conflictCount),
+            state != MergeViewRowState.Unchanged || context.Options.Source.IncludeUnchangedViewRows);
     }
 
     private static void MergeRowMetadata(
@@ -575,7 +581,7 @@ public sealed class ThreeWayMergeEngine
         }
         else
         {
-            accumulator.AddRowConflict(ConflictKind.IncompatibleRowInsertion, location);
+            accumulator.AddRowConflict(ConflictKind.RowMetadata, location);
         }
     }
 
@@ -754,7 +760,7 @@ public sealed class ThreeWayMergeEngine
             foreach (var row in baseRows.Rows)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                accumulator.AddViewRow(new MergeViewRow(
+                accumulator.AddRow(new MergeViewRow(
                     row.RowIndex,
                     null,
                     null,
@@ -816,7 +822,7 @@ public sealed class ThreeWayMergeEngine
             foreach (var row in rows)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                accumulator.AddViewRow(new MergeViewRow(
+                accumulator.AddRow(new MergeViewRow(
                     null,
                     useLocal ? row.RowIndex : null,
                     useLocal ? null : row.RowIndex,
@@ -864,7 +870,7 @@ public sealed class ThreeWayMergeEngine
         foreach (var step in alignment)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            accumulator.AddViewRow(new MergeViewRow(
+            accumulator.AddRow(new MergeViewRow(
                 null,
                 step.BaseOrdinal >= 0 ? localRows.Rows[step.BaseOrdinal].RowIndex : null,
                 step.SourceOrdinal >= 0 ? remoteRows.Rows[step.SourceOrdinal].RowIndex : null,
@@ -900,7 +906,7 @@ public sealed class ThreeWayMergeEngine
                 context,
                 cancellationToken);
             var deletedKind = step.BaseOrdinal >= 0 ? ChangeKind.Removed : ChangeKind.Unchanged;
-            accumulator.AddViewRow(new MergeViewRow(
+            accumulator.AddRow(new MergeViewRow(
                 baseRowIndex,
                 localDeleted ? null : retainedRowIndex,
                 localDeleted ? retainedRowIndex : null,
@@ -970,6 +976,7 @@ public sealed class ThreeWayMergeEngine
         private readonly List<CellResolution> _cellResolutions = [];
         private readonly List<RowResolution> _rowResolutions = [];
         private readonly List<AutomaticMergeDecision> _decisions = [];
+        private readonly List<MergeRowMapping> _rowMappings = [];
         private readonly List<MergeViewRow> _viewRows = [];
         private long _nextConflictId;
 
@@ -984,7 +991,17 @@ public sealed class ThreeWayMergeEngine
 
         public void AddDecision(AutomaticMergeDecision decision) => _decisions.Add(decision);
 
-        public void AddViewRow(MergeViewRow row) => _viewRows.Add(row);
+        public void AddRow(MergeViewRow row, bool includeInView = true)
+        {
+            _rowMappings.Add(new MergeRowMapping(
+                row.BaseRowIndex,
+                row.LocalRowIndex,
+                row.RemoteRowIndex));
+            if (includeInView)
+            {
+                _viewRows.Add(row);
+            }
+        }
 
         public int AddCellConflict(
             ConflictKind kind,
@@ -1015,14 +1032,19 @@ public sealed class ThreeWayMergeEngine
             return index;
         }
 
-        public ThreeWayMergeResult CreateResult(SheetChange localChange, SheetChange remoteChange) =>
+        public ThreeWayMergeResult CreateResult(
+            string sheetGroupId,
+            SheetChange localChange,
+            SheetChange remoteChange) =>
             new(
+                sheetGroupId,
                 localChange,
                 remoteChange,
                 _conflicts.ToArray(),
                 _cellResolutions.ToArray(),
                 _rowResolutions.ToArray(),
                 _decisions.ToArray(),
+                _rowMappings.ToArray(),
                 _viewRows.ToArray(),
                 _nextConflictId);
 

@@ -1,0 +1,58 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ExcelMerge.Desktop.SettingsWindow"
+        Title="{DynamicResource Settings}" Width="460" Height="390"
+        CanResize="False" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="*,Auto" Margin="16">
+    <TabControl>
+      <TabItem Header="{DynamicResource Settings}">
+        <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="10" Margin="12">
+          <TextBlock Text="{DynamicResource Language}" Classes="label" VerticalAlignment="Center" />
+          <ComboBox x:Name="LanguageBox" Grid.Column="1" Classes="compact" SelectionChanged="LanguageChanged">
+            <ComboBoxItem Content="English" Tag="en-US" />
+            <ComboBoxItem Content="日本語" Tag="ja-JP" />
+            <ComboBoxItem Content="简体中文" Tag="zh-CN" />
+          </ComboBox>
+          <TextBlock Grid.Row="1" Text="{DynamicResource Theme}" Classes="label" VerticalAlignment="Center" />
+          <ComboBox x:Name="ThemeBox" Grid.Row="1" Grid.Column="1" Classes="compact" SelectionChanged="ThemeChanged">
+            <ComboBoxItem Content="{DynamicResource System}" Tag="System" />
+            <ComboBoxItem Content="{DynamicResource Light}" Tag="Light" />
+            <ComboBoxItem Content="{DynamicResource Dark}" Tag="Dark" />
+          </ComboBox>
+        </Grid>
+      </TabItem>
+      <TabItem Header="{DynamicResource Grid}">
+        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="10" Margin="12">
+          <TextBlock Text="{DynamicResource RowHeight}" Classes="label" VerticalAlignment="Center" />
+          <NumericUpDown x:Name="RowHeightBox" Grid.Column="1" Minimum="18" Maximum="64" Increment="1" />
+          <TextBlock Grid.Row="1" Text="{DynamicResource ColumnWidth}" Classes="label" VerticalAlignment="Center" />
+          <NumericUpDown x:Name="ColumnWidthBox" Grid.Row="1" Grid.Column="1" Minimum="64" Maximum="320" Increment="4" />
+          <TextBlock Grid.Row="2" Text="{DynamicResource CacheRows}" Classes="label" VerticalAlignment="Center" />
+          <NumericUpDown x:Name="CacheRowsBox" Grid.Row="2" Grid.Column="1" Minimum="32" Maximum="2048" Increment="32" />
+        </Grid>
+      </TabItem>
+      <TabItem Header="{DynamicResource Comparison}">
+        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+              ColumnSpacing="12" RowSpacing="9" Margin="12">
+          <TextBlock Text="{DynamicResource KeyColumns}" Classes="label" VerticalAlignment="Center" />
+          <TextBox x:Name="KeyColumnsBox" Grid.Column="1" Classes="compact" PlaceholderText="A, C, F" />
+          <CheckBox x:Name="FormulaValuesBox" Grid.Row="1" Grid.ColumnSpan="2"
+                    Content="{DynamicResource FormulaCachedValues}" />
+          <CheckBox x:Name="DisplayTextBox" Grid.Row="2" Grid.ColumnSpan="2"
+                    Content="{DynamicResource CompareDisplayText}" />
+          <CheckBox x:Name="CellStylesBox" Grid.Row="3" Grid.ColumnSpan="2"
+                    Content="{DynamicResource CompareStyles}" />
+          <CheckBox x:Name="RowMetadataBox" Grid.Row="4" Grid.ColumnSpan="2"
+                    Content="{DynamicResource CompareRowMetadata}" />
+          <CheckBox x:Name="BlankCellsBox" Grid.Row="5" Grid.ColumnSpan="2"
+                    Content="{DynamicResource BlankAsMissing}" />
+        </Grid>
+      </TabItem>
+    </TabControl>
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,12,0,0">
+      <TextBlock x:Name="ValidationText" Foreground="#A13055" VerticalAlignment="Center" />
+      <Button Grid.Column="1" Classes="primary" Content="{DynamicResource Save}" Click="SaveSettings" />
+      <Button Grid.Column="2" Content="{DynamicResource Close}" Click="CloseWindow" />
+    </Grid>
+  </Grid>
+</Window>

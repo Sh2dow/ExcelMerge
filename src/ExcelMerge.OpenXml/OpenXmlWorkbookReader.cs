@@ -119,8 +119,9 @@ public sealed class OpenXmlWorkbookReader : IOpenXmlWorkbookReader
                 source.FullPath,
                 settings.DisplayCulture,
                 cancellationToken);
-            var sharedStrings = OpenXmlReaderSharedStrings.Load(
+            using var sharedStrings = OpenXmlReaderSharedStrings.Load(
                 discovered.SharedStringsPart,
+                workspace,
                 source.FullPath,
                 count => progress?.Report(new OpenXmlReaderProgress(
                     OpenXmlReaderStage.ReadingSharedStrings,

@@ -8,6 +8,9 @@ public sealed record WorkspaceOptions
     public const long DefaultChunkSizeBytes = 256L * 1024 * 1024;
     public const int DefaultMaximumRowSizeBytes = 128 * 1024 * 1024;
     public const long DefaultRowCacheByteLimit = 64L * 1024 * 1024;
+    public const string DefaultOwnershipMarkerFileName = ".excelmerge-workspace";
+    public const string DefaultOwnershipMarkerValue = "ExcelMerge.Storage.Workspace/v1";
+    public const string DefaultActiveLeaseFileName = ".excelmerge-workspace.active";
 
     /// <summary>
     /// Gets the directory in which the unique workspace directory is created.
@@ -19,6 +22,22 @@ public sealed record WorkspaceOptions
     /// Gets the prefix used for the unique workspace directory name.
     /// </summary>
     public string DirectoryPrefix { get; init; } = "excelmerge-";
+
+    /// <summary>
+    /// Gets the file name used to mark a directory as owned by this application.
+    /// </summary>
+    public string OwnershipMarkerFileName { get; init; } = DefaultOwnershipMarkerFileName;
+
+    /// <summary>
+    /// Gets the exact marker value required before startup maintenance may delete a directory.
+    /// Applications that customize this value must use the same value for creation and maintenance.
+    /// </summary>
+    public string OwnershipMarkerValue { get; init; } = DefaultOwnershipMarkerValue;
+
+    /// <summary>
+    /// Gets the file name held with an exclusive lease while a workspace is active.
+    /// </summary>
+    public string ActiveLeaseFileName { get; init; } = DefaultActiveLeaseFileName;
 
     /// <summary>
     /// Gets whether the workspace directory is recursively deleted on disposal.
@@ -77,6 +96,22 @@ public sealed record WorkspaceOptions
             throw new ArgumentException("The workspace directory prefix must be a valid file-name prefix.", nameof(DirectoryPrefix));
         }
 
+        ValidateMetadataFileName(OwnershipMarkerFileName, nameof(OwnershipMarkerFileName));
+        ValidateMetadataFileName(ActiveLeaseFileName, nameof(ActiveLeaseFileName));
+
+        if (string.IsNullOrWhiteSpace(OwnershipMarkerValue))
+        {
+            throw new ArgumentException("The workspace ownership marker value cannot be empty.", nameof(OwnershipMarkerValue));
+        }
+
+        var fileNameComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (string.Equals(OwnershipMarkerFileName, ActiveLeaseFileName, fileNameComparison))
+        {
+            throw new ArgumentException("The ownership marker and active lease file names must be different.");
+        }
+
         if (ChunkSizeBytes <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(ChunkSizeBytes), "Chunk size must be positive.");
@@ -116,6 +151,9 @@ public sealed record WorkspaceOptions
         return new WorkspaceSettings(
             baseDirectory,
             DirectoryPrefix,
+            OwnershipMarkerFileName,
+            OwnershipMarkerValue,
+            ActiveLeaseFileName,
             DeleteOnDispose,
             ChunkSizeBytes,
             MaximumRowSizeBytes,
@@ -124,11 +162,26 @@ public sealed record WorkspaceOptions
             CleanupRetryCount,
             CleanupRetryDelay);
     }
+
+    private static void ValidateMetadataFileName(string fileName, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName) ||
+            fileName is "." or ".." ||
+            fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+            fileName.Contains(Path.DirectorySeparatorChar) ||
+            fileName.Contains(Path.AltDirectorySeparatorChar))
+        {
+            throw new ArgumentException("Workspace metadata names must be valid single file names.", parameterName);
+        }
+    }
 }
 
 internal sealed record WorkspaceSettings(
     string BaseDirectory,
     string DirectoryPrefix,
+    string OwnershipMarkerFileName,
+    string OwnershipMarkerValue,
+    string ActiveLeaseFileName,
     bool DeleteOnDispose,
     long ChunkSizeBytes,
     int MaximumRowSizeBytes,

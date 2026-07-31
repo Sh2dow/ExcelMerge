@@ -6,6 +6,7 @@
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\ExcelMerge.Delimited\ExcelMerge.Delimited.csproj" />
     <ProjectReference Include="..\ExcelMerge.Domain\ExcelMerge.Domain.csproj" />
     <ProjectReference Include="..\ExcelMerge.Engine\ExcelMerge.Engine.csproj" />
     <ProjectReference Include="..\ExcelMerge.OpenXml\ExcelMerge.OpenXml.csproj" />

@@ -6,6 +6,7 @@ public enum ConflictKind
     CellDeleteEdit,
     RowAddAdd,
     RowDeleteEdit,
+    RowMetadata,
     IncompatibleRowInsertion,
     SheetAddAdd,
     SheetDeleteEdit,
