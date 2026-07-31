@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/ExcelMerge.Rewrite.Benchmarks/ExcelMerge.Rewrite.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/ExcelMerge.Application/ExcelMerge.Application.csproj" />
+    <Project Path="src/ExcelMerge.Cli/ExcelMerge.Cli.csproj" />
+    <Project Path="src/ExcelMerge.Desktop/ExcelMerge.Desktop.csproj" />
+    <Project Path="src/ExcelMerge.Domain/ExcelMerge.Domain.csproj" />
+    <Project Path="src/ExcelMerge.Engine/ExcelMerge.Engine.csproj" />
+    <Project Path="src/ExcelMerge.OpenXml/ExcelMerge.OpenXml.csproj" />
+    <Project Path="src/ExcelMerge.Storage/ExcelMerge.Storage.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ExcelMerge.Rewrite.Tests/ExcelMerge.Rewrite.Tests.csproj" />
+  </Folder>
+</Solution>
