@@ -10,7 +10,6 @@
           <TextBlock Text="{DynamicResource Language}" Classes="label" VerticalAlignment="Center" />
           <ComboBox x:Name="LanguageBox" Grid.Column="1" Classes="compact" SelectionChanged="LanguageChanged">
             <ComboBoxItem Content="English" Tag="en-US" />
-            <ComboBoxItem Content="日本語" Tag="ja-JP" />
             <ComboBoxItem Content="简体中文" Tag="zh-CN" />
           </ComboBox>
           <TextBlock Grid.Row="1" Text="{DynamicResource Theme}" Classes="label" VerticalAlignment="Center" />

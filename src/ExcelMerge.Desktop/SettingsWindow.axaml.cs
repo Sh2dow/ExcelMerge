@@ -23,8 +23,7 @@ public sealed partial class SettingsWindow : Window
         AvaloniaXamlLoader.Load(this);
         this.FindControl<ComboBox>("LanguageBox")!.SelectedIndex = LocalizationService.CurrentCulture switch
         {
-            "ja-JP" => 1,
-            "zh-CN" => 2,
+            "zh-CN" => 1,
             _ => 0,
         };
         this.FindControl<ComboBox>("ThemeBox")!.SelectedIndex = 0;

@@ -55,7 +55,6 @@ The excluded WPF project also contains these user-facing features:
 - Configure row headers, column headers, and file-specific matching profiles.
 - Store recent files and recent file pairs.
 - Configure blank-row/column trimming, grid metrics, colors, and fonts.
-- English, Japanese, and Simplified Chinese resources.
 - Configurable external commands, log templates, and a PowerShell console.
 
 The rewrite restores search, navigation, copy, recent sessions, header/key profiles, keyboard shortcuts, and localization in its first release. External commands, the PowerShell console, and log templates are deferred.

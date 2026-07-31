@@ -24,7 +24,7 @@ Measurements were recorded on Windows 10, an Intel Core i7-11700F, 16 logical co
 - `ExcelMerge.OpenXml` writer: LOCAL-copy transaction, source verification, remote styles/worksheets, BOTH, coordinate/formula/name transforms, table remapping, unsupported dependency rejection, recalculation, bounded large-part validation, and atomic commit.
 - `ExcelMerge.Delimited`: RFC 4180 CSV and TSV parsing, BOM/encoding handling, limits, typed snapshots, and transactional UTF-8 output.
 - `ExcelMerge.Application`: format dispatch, compare/merge sessions, sheet pairing, progress, cancellation, workspace ownership, resolution mutation, save orchestration, recent descriptors, and atomic JSON settings.
-- `ExcelMerge.Desktop`: Avalonia `WinExe`, direct startup arguments, virtual synchronized grid, bounded viewport/text caches, change map, search, navigation, inspection, conflict resolution, save, settings, recent sessions, diagnostics, accessibility name, and three locales.
+- `ExcelMerge.Desktop`: Avalonia `WinExe`, direct startup arguments, virtual synchronized grid, bounded viewport/text caches, change map, search, navigation, inspection, conflict resolution, save, settings, recent sessions, diagnostics, accessibility name, and two locales.
 - `ExcelMerge.Cli`: strict diff/merge/merge-driver parsing, aliases, extensionless Git staging, transactional `%A` replacement, cancellation, and `0/1/2` exit contracts.
 - Benchmarks: 200K/1M/5M streaming corpora, metadata, dense/sparse and repeated/unique indexing, viewport fetch, storage, alignment, two-way, three-way, and validated package writing.
 
@@ -39,7 +39,7 @@ Measurements were recorded on Windows 10, an Intel Core i7-11700F, 16 logical co
 
 - Open the Windows fidelity fixture set in supported Microsoft Excel versions and confirm no repair prompt.
 - Open the cross-platform fixture set in LibreOffice.
-- Exercise Desktop keyboard, screen-reader, high-DPI, Japanese, and Simplified Chinese workflows on target systems.
+- Exercise Desktop keyboard, screen-reader, high-DPI, and Simplified Chinese workflows on target systems.
 - Establish repeatable CI hardware before enforcing the documented 10% throughput and 5% allocation regression thresholds.
 
 External commands, the PowerShell console, and configurable log templates remain deferred as stated in `current-capabilities.md`.

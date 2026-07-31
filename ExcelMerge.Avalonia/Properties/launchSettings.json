@@ -1,9 +1,0 @@
-{
-  "profiles": {
-    "ExcelMerge.Avalonia": {
-      "commandName": "Project",
-      "commandLineArgs": "merge -b ExcelMerge.Tests\\Fixtures\\GitConflict\\01-base.xlsx -l ExcelMerge.Tests\\Fixtures\\GitConflict\\02-local.xlsx -r ExcelMerge.Tests\\Fixtures\\GitConflict\\03-remote.xlsx",
-      "workingDirectory": ".."
-    }
-  }
-}
