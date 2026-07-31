@@ -34,7 +34,18 @@ public sealed partial class App : Avalonia.Application
             };
             mainWindow.Opened += (_, _) => _viewModel.ApplyStartupArguments(desktop.Args ?? []);
             desktop.MainWindow = mainWindow;
-            desktop.Exit += (_, _) => _viewModel.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            desktop.Exit += (_, eventArgs) =>
+            {
+                _viewModel.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                if (_viewModel is
+                    {
+                        SuggestedOutputPath: not null,
+                        SuggestedOutputSaved: false,
+                    })
+                {
+                    eventArgs.ApplicationExitCode = 1;
+                }
+            };
         }
 
         base.OnFrameworkInitializationCompleted();

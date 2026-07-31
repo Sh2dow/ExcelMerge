@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
+using DocumentFormat.OpenXml.Validation;
 using ExcelMerge.Domain;
 using ExcelMerge.Engine;
 using ExcelMerge.OpenXml;
@@ -13,6 +14,66 @@ namespace ExcelMerge.Rewrite.Tests;
 [TestClass]
 public sealed class OpenXmlWriterTests
 {
+    [TestMethod]
+    public async Task Writer_normalizes_noncanonical_font_child_order_before_validation()
+    {
+        using var temporaryDirectory = new TestDirectory();
+        const string styles =
+            "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
+            "<fonts count=\"1\"><font><name val=\"Calibri\"/><charset val=\"1\"/>" +
+            "<family val=\"2\"/><color rgb=\"FF112233\"/><sz val=\"11\"/>" +
+            "<scheme val=\"minor\"/></font></fonts>" +
+            "<fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill>" +
+            "<fill><patternFill patternType=\"gray125\"/></fill></fills>" +
+            "<borders count=\"1\"><border/></borders>" +
+            "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>" +
+            "<cellXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/></cellXfs>" +
+            "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>" +
+            "<dxfs count=\"0\"/></styleSheet>";
+        var basePath = CreateStyledTextWorkbook(temporaryDirectory, "base.xlsx", "base", styles);
+        var localPath = CreateStyledTextWorkbook(temporaryDirectory, "local.xlsx", "base", styles);
+        var remotePath = CreateStyledTextWorkbook(temporaryDirectory, "remote.xlsx", "remote", styles);
+        var destinationPath = temporaryDirectory.GetPath("result.xlsx");
+        var localHash = await HashFileAsync(localPath);
+        await using var workspace = new Workspace(new WorkspaceOptions
+        {
+            BaseDirectory = temporaryDirectory.Path,
+        });
+        var (plan, _, _, _) = await CreatePlanAsync(
+            basePath,
+            localPath,
+            remotePath,
+            workspace);
+        var request = await CreateWriteRequestAsync(
+            plan,
+            basePath,
+            localPath,
+            remotePath,
+            destinationPath);
+
+        await new OpenXmlWorkbookWriter().WriteAsync(
+            request,
+            new OpenXmlWriterOptions { MinimumFreeSpaceReserveBytes = 0 });
+
+        CollectionAssert.AreEqual(localHash, await HashFileAsync(localPath));
+        using var document = SpreadsheetDocument.Open(destinationPath, isEditable: false);
+        var errors = new OpenXmlValidator(FileFormatVersions.Microsoft365)
+            .Validate(document)
+            .ToArray();
+        Assert.AreEqual(
+            0,
+            errors.Length,
+            string.Join(Environment.NewLine, errors.Select(static error => error.Description)));
+        CollectionAssert.AreEqual(
+            new[] { "sz", "color", "name", "family", "charset", "scheme" },
+            document.WorkbookPart!.WorkbookStylesPart!.Stylesheet.Fonts!
+                .Elements<Font>()
+                .Single()
+                .ChildElements
+                .Select(static child => child.LocalName)
+                .ToArray());
+    }
+
     [TestMethod]
     public async Task Writer_applies_remote_only_cell_change_and_preserves_sources()
     {
@@ -684,6 +745,19 @@ public sealed class OpenXmlWriterTests
             "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
             $"<sheetData><row r=\"1\"><c r=\"A1\" t=\"str\"><v>{value}</v></c></row></sheetData>" +
             "</worksheet>",
+            fileName: fileName);
+
+    private static string CreateStyledTextWorkbook(
+        TestDirectory directory,
+        string fileName,
+        string value,
+        string styles) =>
+        OpenXmlTestWorkbook.Create(
+            directory,
+            "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
+            $"<sheetData><row r=\"1\"><c r=\"A1\" t=\"str\" s=\"0\"><v>{value}</v></c></row></sheetData>" +
+            "</worksheet>",
+            stylesXml: styles,
             fileName: fileName);
 
     private static string CreateRowsWorkbook(

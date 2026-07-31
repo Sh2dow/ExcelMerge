@@ -44,6 +44,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private bool _inputsExpanded = true;
     private string? _suggestedOutputPath;
     private bool _suggestedOutputSaved;
+    private bool _selectingConflictFromGrid;
+    private int _cellSelectionVersion;
 
     public MainWindowViewModel(
         ExcelMergeApplication application,
@@ -114,6 +116,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public RelayCommand ToggleInputsCommand { get; }
 
     public event Action<int, int>? NavigationRequested;
+
+    public event Action<ConflictItemViewModel>? ConflictSelectionRequested;
 
     public DesktopMode Mode
     {
@@ -270,6 +274,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         get => _selectedConflict;
         set
         {
+            if (!_selectingConflictFromGrid)
+            {
+                _cellSelectionVersion++;
+            }
+
             if (!SetProperty(ref _selectedConflict, value))
             {
                 return;
@@ -279,7 +288,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             OnPropertyChanged(nameof(CanUseBoth));
             OnPropertyChanged(nameof(CanUseCustom));
             RaiseResolutionCanExecute();
-            if (value is not null)
+            if (value is not null && !_selectingConflictFromGrid)
             {
                 NavigateToConflict(value.Conflict);
             }
@@ -372,6 +381,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public void SetMode(DesktopMode mode) => Mode = mode;
 
+    public void CancelPendingCellSelection() => _cellSelectionVersion++;
+
     public void ApplyStartupArguments(IReadOnlyList<string> arguments)
     {
         if (arguments.Count == 3 &&
@@ -440,17 +451,24 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public async Task SelectCellAsync(GridCellSelection selection)
     {
-        if (GridDocument is null || selection.ViewRowIndex >= GridDocument.RowCount)
+        var document = GridDocument;
+        if (document is null || selection.ViewRowIndex >= document.RowCount)
         {
             return;
         }
 
+        var selectionVersion = ++_cellSelectionVersion;
         _currentGridRow = selection.ViewRowIndex;
-        var row = await GridDocument.LoadRowAsync(selection.ViewRowIndex);
-        Inspector.Address = new CellAddress(
+        var row = await document.LoadRowAsync(selection.ViewRowIndex);
+        if (selectionVersion != _cellSelectionVersion || !ReferenceEquals(document, GridDocument))
+        {
+            return;
+        }
+
+        Inspector.Address = GridDocument.FormatAddress(
             row.Descriptor.LocalRowIndex ?? row.Descriptor.RemoteRowIndex ??
                 row.Descriptor.BaseRowIndex ?? 0,
-            selection.ColumnIndex).ToString();
+            selection.ColumnIndex);
         Inspector.BaseValue = DescribeCell(GridDocument.FindCell(row.BaseRow, selection.ColumnIndex));
         Inspector.LocalValue = DescribeCell(GridDocument.FindCell(row.LocalRow, selection.ColumnIndex));
         Inspector.RemoteValue = DescribeCell(GridDocument.FindCell(row.RemoteRow, selection.ColumnIndex));
@@ -462,6 +480,26 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             : GridDocument.FindCell(row.RemoteRow, selection.ColumnIndex);
         Inspector.Formula = selected?.Value.Formula ?? string.Empty;
         Inspector.ValueType = selected?.Value.Kind.ToString() ?? CellKind.Blank.ToString();
+
+        var conflict = Conflicts.FirstOrDefault(item =>
+            item.Matches(row.Descriptor, selection.ColumnIndex));
+        if (conflict is not null)
+        {
+            if (!ReferenceEquals(SelectedConflict, conflict))
+            {
+                _selectingConflictFromGrid = true;
+                try
+                {
+                    SelectedConflict = conflict;
+                }
+                finally
+                {
+                    _selectingConflictFromGrid = false;
+                }
+            }
+
+            ConflictSelectionRequested?.Invoke(conflict);
+        }
     }
 
     public string GetSelectedCopyText(char delimiter)
@@ -956,13 +994,34 @@ public sealed class ConflictItemViewModel : ObservableObject
 
     public ConflictRecord Conflict { get; }
 
-    public string Location => Conflict.Location.ColumnIndex is { } column
-        ? $"R{(Conflict.Location.LocalRowIndex ?? Conflict.Location.RemoteRowIndex ?? 0) + 1}C{column + 1}"
-        : $"R{(Conflict.Location.LocalRowIndex ?? Conflict.Location.RemoteRowIndex ?? 0) + 1}";
+    public string Location
+    {
+        get
+        {
+            var row = Conflict.Location.LocalRowIndex ??
+                Conflict.Location.RemoteRowIndex ??
+                Conflict.Location.BaseRowIndex ?? 0;
+            return Conflict.Location.ColumnIndex is { } column
+                ? GridDocument.FormatAddress(row, column)
+                : $"R{row + 1}";
+        }
+    }
 
     public string Kind => Conflict.Kind.ToString();
 
     public bool IsRowConflict => Conflict.Kind is not (ConflictKind.CellValue or ConflictKind.CellDeleteEdit);
+
+    public bool Matches(GridRowDescriptor row, int columnIndex) =>
+        Conflict.Location.ColumnIndex == columnIndex &&
+        Conflict.Location.BaseRowIndex == row.BaseRowIndex &&
+        Conflict.Location.LocalRowIndex == row.LocalRowIndex &&
+        Conflict.Location.RemoteRowIndex == row.RemoteRowIndex;
+
+    public string BaseValue => FormatValue(Conflict.BaseValue);
+
+    public string LocalValue => FormatValue(Conflict.LocalValue);
+
+    public string RemoteValue => FormatValue(Conflict.RemoteValue);
 
     public ResolutionKind Resolution
     {
@@ -980,6 +1039,10 @@ public sealed class ConflictItemViewModel : ObservableObject
     public bool IsResolved => Resolution != ResolutionKind.Unresolved;
 
     public string ResolutionText => IsResolved ? Resolution.ToString() : LocalizationService.Get("Unresolved");
+
+    private static string FormatValue(CellValue? value) =>
+        value.HasValue ? GridDocument.FormatValue(value.Value) : string.Empty;
+
 }
 
 public sealed class InspectorViewModel : ObservableObject

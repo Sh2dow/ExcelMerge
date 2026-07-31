@@ -19,6 +19,13 @@ public enum GridRowVisualState
     Resolved,
 }
 
+public enum GridCellVisualState
+{
+    None,
+    Conflict,
+    Resolved,
+}
+
 public enum GridPane
 {
     Local,
@@ -55,12 +62,23 @@ public readonly record struct GridChangeRun(
     int RowCount,
     GridRowVisualState State);
 
+public readonly record struct GridCellMarker(
+    int ViewRowIndex,
+    int ColumnIndex,
+    GridCellVisualState State);
+
+public readonly record struct GridRowMarker(
+    int ViewRowIndex,
+    GridCellVisualState State);
+
 public sealed class GridDocument
 {
     private readonly IWorksheetSnapshot? _base;
     private readonly IWorksheetSnapshot? _local;
     private readonly IWorksheetSnapshot? _remote;
     private readonly GridRowDescriptor[] _rows;
+    private readonly IReadOnlyDictionary<(int Row, int Column), GridCellVisualState> _cellStates;
+    private readonly IReadOnlyDictionary<int, GridCellVisualState> _rowHeaderStates;
 
     private GridDocument(
         GridDocumentKind kind,
@@ -68,7 +86,9 @@ public sealed class GridDocument
         IWorksheetSnapshot? baseWorksheet,
         IWorksheetSnapshot? localWorksheet,
         IWorksheetSnapshot? remoteWorksheet,
-        GridRowDescriptor[] rows)
+        GridRowDescriptor[] rows,
+        IReadOnlyDictionary<(int Row, int Column), GridCellVisualState> cellStates,
+        IReadOnlyDictionary<int, GridCellVisualState> rowHeaderStates)
     {
         Kind = kind;
         Title = title;
@@ -76,6 +96,17 @@ public sealed class GridDocument
         _local = localWorksheet;
         _remote = remoteWorksheet;
         _rows = rows;
+        _cellStates = cellStates;
+        _rowHeaderStates = rowHeaderStates;
+        CellMarkers = cellStates
+            .Select(static item => new GridCellMarker(item.Key.Row, item.Key.Column, item.Value))
+            .OrderBy(static marker => marker.ViewRowIndex)
+            .ThenBy(static marker => marker.ColumnIndex)
+            .ToArray();
+        RowMarkers = rowHeaderStates
+            .Select(static item => new GridRowMarker(item.Key, item.Value))
+            .OrderBy(static marker => marker.ViewRowIndex)
+            .ToArray();
         ChangeRuns = BuildChangeRuns(rows);
         MaxColumnIndex = new[]
         {
@@ -97,6 +128,10 @@ public sealed class GridDocument
 
     public IReadOnlyList<GridChangeRun> ChangeRuns { get; }
 
+    public IReadOnlyList<GridCellMarker> CellMarkers { get; }
+
+    public IReadOnlyList<GridRowMarker> RowMarkers { get; }
+
     public static GridDocument FromCompare(CompareSheetResult sheet, bool hideUnchanged = false)
     {
         var rows = sheet.Difference.ViewRows.ToArray()
@@ -117,7 +152,9 @@ public sealed class GridDocument
             baseWorksheet: null,
             sheet.LocalWorksheet,
             sheet.RemoteWorksheet,
-            rows);
+            rows,
+            new Dictionary<(int, int), GridCellVisualState>(),
+            new Dictionary<int, GridCellVisualState>());
     }
 
     public static GridDocument FromMerge(
@@ -126,30 +163,54 @@ public sealed class GridDocument
         bool hideUnchanged = false)
     {
         var conflicts = sheet.Merge.Conflicts.ToArray();
-        var rows = sheet.Merge.ViewRows.ToArray()
-            .Select(row =>
+        var rows = new List<GridRowDescriptor>();
+        var cellStates = new Dictionary<(int, int), GridCellVisualState>();
+        var rowHeaderStates = new Dictionary<int, GridCellVisualState>();
+        foreach (var row in sheet.Merge.ViewRows.Span)
+        {
+            var resolved = row.ConflictCount != 0;
+            for (var offset = 0; offset < row.ConflictCount; offset++)
             {
-                var resolved = row.ConflictCount != 0 && conflicts
-                    .AsSpan(row.ConflictStartIndex, row.ConflictCount)
-                    .ToArray()
-                    .All(conflict => resolvedConflicts.Contains(conflict.Id));
-                var state = row.State switch
+                resolved &= resolvedConflicts.Contains(conflicts[row.ConflictStartIndex + offset].Id);
+            }
+
+            var state = row.State switch
+            {
+                MergeViewRowState.Unchanged => GridRowVisualState.Unchanged,
+                MergeViewRowState.Automatic => GridRowVisualState.Changed,
+                MergeViewRowState.Conflict when resolved => GridRowVisualState.Resolved,
+                MergeViewRowState.Conflict => GridRowVisualState.Conflict,
+                _ => GridRowVisualState.Unchanged,
+            };
+            if (hideUnchanged && state == GridRowVisualState.Unchanged)
+            {
+                continue;
+            }
+
+            var viewRowIndex = rows.Count;
+            rows.Add(new GridRowDescriptor(
+                row.BaseRowIndex,
+                row.LocalRowIndex,
+                row.RemoteRowIndex,
+                state,
+                row.ConflictCount));
+            for (var offset = 0; offset < row.ConflictCount; offset++)
+            {
+                var conflict = conflicts[row.ConflictStartIndex + offset];
+                var conflictState = resolvedConflicts.Contains(conflict.Id)
+                    ? GridCellVisualState.Resolved
+                    : GridCellVisualState.Conflict;
+                if (conflict.Location.ColumnIndex is { } columnIndex)
                 {
-                    MergeViewRowState.Unchanged => GridRowVisualState.Unchanged,
-                    MergeViewRowState.Automatic => GridRowVisualState.Changed,
-                    MergeViewRowState.Conflict when resolved => GridRowVisualState.Resolved,
-                    MergeViewRowState.Conflict => GridRowVisualState.Conflict,
-                    _ => GridRowVisualState.Unchanged,
-                };
-                return new GridRowDescriptor(
-                    row.BaseRowIndex,
-                    row.LocalRowIndex,
-                    row.RemoteRowIndex,
-                    state,
-                    row.ConflictCount);
-            })
-            .Where(row => !hideUnchanged || row.State != GridRowVisualState.Unchanged)
-            .ToArray();
+                    SetVisualState(cellStates, (viewRowIndex, columnIndex), conflictState);
+                }
+                else
+                {
+                    SetVisualState(rowHeaderStates, viewRowIndex, conflictState);
+                }
+            }
+        }
+
         var title = sheet.LocalWorksheet?.Metadata.Name ??
             sheet.RemoteWorksheet?.Metadata.Name ??
             sheet.BaseWorksheet?.Metadata.Name ??
@@ -160,7 +221,22 @@ public sealed class GridDocument
             sheet.BaseWorksheet,
             sheet.LocalWorksheet,
             sheet.RemoteWorksheet,
-            rows);
+            [.. rows],
+            cellStates,
+            rowHeaderStates);
+    }
+
+    public GridCellVisualState GetCellVisualState(int viewRowIndex, int columnIndex)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(viewRowIndex);
+        ArgumentOutOfRangeException.ThrowIfNegative(columnIndex);
+        return _cellStates.GetValueOrDefault((viewRowIndex, columnIndex));
+    }
+
+    public GridCellVisualState GetRowHeaderVisualState(int viewRowIndex)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(viewRowIndex);
+        return _rowHeaderStates.GetValueOrDefault(viewRowIndex);
     }
 
     public async ValueTask<GridLoadedRow> LoadRowAsync(
@@ -319,6 +395,23 @@ public sealed class GridDocument
             : value.Scalar.GetValueOrDefault().ToString();
     }
 
+    public static string FormatAddress(int rowIndex, int columnIndex)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(rowIndex);
+        ArgumentOutOfRangeException.ThrowIfNegative(columnIndex);
+        Span<char> column = stackalloc char[8];
+        var cursor = column.Length;
+        var value = columnIndex + 1;
+        while (value > 0)
+        {
+            value--;
+            column[--cursor] = (char)('A' + (value % 26));
+            value /= 26;
+        }
+
+        return $"{column[cursor..]}{rowIndex + 1}";
+    }
+
     private static async ValueTask<RowRecord?> ReadOptionalAsync(
         IWorksheetSnapshot? worksheet,
         int? rowIndex,
@@ -349,5 +442,17 @@ public sealed class GridDocument
         }
 
         return [.. runs];
+    }
+
+    private static void SetVisualState<TKey>(
+        Dictionary<TKey, GridCellVisualState> states,
+        TKey key,
+        GridCellVisualState state)
+        where TKey : notnull
+    {
+        if (!states.TryGetValue(key, out var current) || current == GridCellVisualState.Resolved)
+        {
+            states[key] = state;
+        }
     }
 }

@@ -365,7 +365,66 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
             calculation.ForceFullCalculation = true;
             workbookPart.Workbook.Save();
         }
+
+        NormalizeFontElementOrder(workbookPart);
     }
+
+    private static void NormalizeFontElementOrder(WorkbookPart workbookPart)
+    {
+        var stylesheet = workbookPart.WorkbookStylesPart?.Stylesheet;
+        if (stylesheet is null)
+        {
+            return;
+        }
+
+        var changed = false;
+        foreach (var font in stylesheet.Descendants<Font>())
+        {
+            var children = font.ChildElements.ToArray();
+            var ordered = children.OrderBy(FontElementOrder).ToArray();
+            if (children.Select((child, index) => ReferenceEquals(child, ordered[index])).All(static value => value))
+            {
+                continue;
+            }
+
+            foreach (var child in children)
+            {
+                child.Remove();
+            }
+
+            foreach (var child in ordered)
+            {
+                font.Append(child);
+            }
+
+            changed = true;
+        }
+
+        if (changed)
+        {
+            stylesheet.Save();
+        }
+    }
+
+    private static int FontElementOrder(OpenXmlElement element) => element switch
+    {
+        Bold => 0,
+        Italic => 1,
+        Strike => 2,
+        Condense => 3,
+        Extend => 4,
+        Outline => 5,
+        Shadow => 6,
+        Underline => 7,
+        VerticalTextAlignment => 8,
+        FontSize => 9,
+        Color => 10,
+        FontName => 11,
+        FontFamilyNumbering => 12,
+        FontCharSet => 13,
+        FontScheme => 14,
+        _ => 15,
+    };
 
     private static void UpdateWorksheetMetadata(
         WorkbookPart workbookPart,

@@ -5,17 +5,25 @@ using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 
 namespace ExcelMerge.Desktop;
 
 public sealed partial class MainWindow : Window
 {
     private MainWindowViewModel? _subscribedViewModel;
+    private bool _updatingHorizontalScrollBars;
+    private bool _updatingVerticalScrollBar;
 
     public MainWindow()
     {
         InitializeComponent();
         DiffGridControl.CellSelected += GridCellSelected;
+        DiffGridControl.HorizontalScrollChanged += GridHorizontalScrollChanged;
+        DiffGridControl.VerticalScrollChanged += GridVerticalScrollChanged;
+        ChangeMapControl.PositionRequested += ChangeMapPositionRequested;
+        SynchronizeHorizontalScrollBars();
+        SynchronizeVerticalNavigation();
         DataContextChanged += (_, _) => SubscribeViewModel();
     }
 
@@ -23,27 +31,132 @@ public sealed partial class MainWindow : Window
 
     private VirtualDiffGrid DiffGridControl => this.FindControl<VirtualDiffGrid>("DiffGrid")!;
 
+    private ScrollBar LocalHorizontalScrollBarControl =>
+        this.FindControl<ScrollBar>("LocalHorizontalScrollBar")!;
+
+    private ScrollBar RemoteHorizontalScrollBarControl =>
+        this.FindControl<ScrollBar>("RemoteHorizontalScrollBar")!;
+
+    private ScrollBar VerticalScrollBarControl =>
+        this.FindControl<ScrollBar>("VerticalScrollBar")!;
+
+    private DiffChangeMap ChangeMapControl => this.FindControl<DiffChangeMap>("ChangeMap")!;
+
+    private ListBox ConflictNavigatorControl => this.FindControl<ListBox>("ConflictNavigator")!;
+
     private void SubscribeViewModel()
     {
         if (_subscribedViewModel is not null)
         {
             _subscribedViewModel.NavigationRequested -= NavigateGrid;
+            _subscribedViewModel.ConflictSelectionRequested -= RevealConflict;
         }
 
         _subscribedViewModel = DataContext as MainWindowViewModel;
         if (_subscribedViewModel is not null)
         {
             _subscribedViewModel.NavigationRequested += NavigateGrid;
+            _subscribedViewModel.ConflictSelectionRequested += RevealConflict;
         }
     }
 
     private void NavigateGrid(int row, int column) => DiffGridControl.ScrollTo(row, column);
+
+    private void RevealConflict(ConflictItemViewModel conflict)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!ReferenceEquals(_subscribedViewModel?.SelectedConflict, conflict))
+            {
+                return;
+            }
+
+            ConflictNavigatorControl.ScrollIntoView(conflict);
+        });
+    }
+
+    private void ConflictNavigatorPointerPressed(object? sender, PointerPressedEventArgs e) =>
+        _subscribedViewModel?.CancelPendingCellSelection();
 
     private async void GridCellSelected(object? sender, GridCellSelection selection)
     {
         if (DataContext is MainWindowViewModel viewModel)
         {
             await viewModel.SelectCellAsync(selection);
+        }
+    }
+
+    private void GridHorizontalScrollChanged(object? sender, EventArgs e) =>
+        SynchronizeHorizontalScrollBars();
+
+    private void GridVerticalScrollChanged(object? sender, EventArgs e) =>
+        SynchronizeVerticalNavigation();
+
+    private void HorizontalScrollValueChanged(
+        object? sender,
+        RangeBaseValueChangedEventArgs e)
+    {
+        if (!_updatingHorizontalScrollBars)
+        {
+            DiffGridControl.ScrollHorizontalTo(e.NewValue);
+        }
+    }
+
+    private void VerticalScrollValueChanged(
+        object? sender,
+        RangeBaseValueChangedEventArgs e)
+    {
+        if (!_updatingVerticalScrollBar)
+        {
+            DiffGridControl.ScrollVerticalTo(e.NewValue);
+        }
+    }
+
+    private void ChangeMapPositionRequested(double horizontalRatio, double verticalRatio) =>
+        DiffGridControl.CenterOnMapPosition(horizontalRatio, verticalRatio);
+
+    private void SynchronizeHorizontalScrollBars()
+    {
+        _updatingHorizontalScrollBars = true;
+        try
+        {
+            Synchronize(LocalHorizontalScrollBarControl);
+            Synchronize(RemoteHorizontalScrollBarControl);
+        }
+        finally
+        {
+            _updatingHorizontalScrollBars = false;
+        }
+
+        ChangeMapControl.FirstVisibleColumn = DiffGridControl.FirstVisibleColumn;
+        ChangeMapControl.VisibleColumnCount = DiffGridControl.HorizontalViewportSize;
+
+        void Synchronize(ScrollBar scrollBar)
+        {
+            scrollBar.Maximum = DiffGridControl.HorizontalScrollMaximum;
+            scrollBar.ViewportSize = DiffGridControl.HorizontalViewportSize;
+            scrollBar.LargeChange = Math.Max(1, DiffGridControl.HorizontalViewportSize);
+            scrollBar.Value = DiffGridControl.FirstVisibleColumn;
+            scrollBar.IsEnabled = DiffGridControl.HorizontalScrollMaximum > 0;
+        }
+    }
+
+    private void SynchronizeVerticalNavigation()
+    {
+        _updatingVerticalScrollBar = true;
+        try
+        {
+            VerticalScrollBarControl.Maximum = DiffGridControl.VerticalScrollMaximum;
+            VerticalScrollBarControl.ViewportSize = DiffGridControl.VerticalViewportSize;
+            VerticalScrollBarControl.LargeChange = Math.Max(1, DiffGridControl.VerticalViewportSize);
+            VerticalScrollBarControl.Value = DiffGridControl.FirstVisibleRow;
+            VerticalScrollBarControl.IsEnabled = DiffGridControl.VerticalScrollMaximum > 0;
+            ChangeMapControl.FirstVisibleRow = DiffGridControl.FirstVisibleRow;
+            ChangeMapControl.VisibleRowCount = DiffGridControl.VerticalViewportSize;
+        }
+        finally
+        {
+            _updatingVerticalScrollBar = false;
         }
     }
 
@@ -101,7 +214,6 @@ public sealed partial class MainWindow : Window
         {
             if (await viewModel.SaveAsync(viewModel.SuggestedOutputPath))
             {
-                Environment.ExitCode = 0;
                 Close();
             }
             return;
@@ -234,17 +346,4 @@ public sealed partial class MainWindow : Window
         Patterns = ["*.xlsx", "*.csv", "*.tsv"],
     };
 
-    protected override void OnClosed(EventArgs e)
-    {
-        if (DataContext is MainWindowViewModel
-            {
-                SuggestedOutputPath: not null,
-                SuggestedOutputSaved: false,
-            })
-        {
-            Environment.ExitCode = 1;
-        }
-
-        base.OnClosed(e);
-    }
 }

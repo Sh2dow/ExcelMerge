@@ -16,8 +16,10 @@
     <Border Grid.Row="0" Background="#24282C" Padding="12,8">
       <Grid ColumnDefinitions="Auto,Auto,18,*,Auto,Auto,Auto" ColumnSpacing="7">
         <ToggleButton x:Name="CompareModeButton" Content="{DynamicResource Compare}"
-                      IsChecked="True" Click="SelectCompareMode" MinWidth="86" />
+                      IsChecked="{Binding IsCompareMode, Mode=OneWay}"
+                      Click="SelectCompareMode" MinWidth="86" />
         <ToggleButton x:Name="MergeModeButton" Grid.Column="1" Content="{DynamicResource Merge}"
+                      IsChecked="{Binding IsMergeMode, Mode=OneWay}"
                       Click="SelectMergeMode" MinWidth="86" />
         <TextBlock Grid.Column="3" Text="ExcelMerge" Foreground="White" FontSize="17"
                    FontWeight="SemiBold" VerticalAlignment="Center" />
@@ -57,7 +59,7 @@
 
     <Border Grid.Row="2" Background="#FAFAF8" BorderBrush="#D3D7D9" BorderThickness="0,0,0,1"
             Padding="12,7">
-      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,18,*,160,Auto" ColumnSpacing="7">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,18,*,Auto,Auto" ColumnSpacing="7">
         <Button Classes="primary" Content="{DynamicResource Open}" Command="{Binding RunCommand}" MinWidth="82" />
         <Button Grid.Column="1" Content="{DynamicResource Cancel}" Command="{Binding CancelCommand}" />
         <Button Grid.Column="2" Content="{DynamicResource Swap}" Command="{Binding SwapSidesCommand}" />
@@ -67,19 +69,20 @@
         <TextBlock Grid.Column="6" Text="{Binding Status}" VerticalAlignment="Center"
                    TextTrimming="CharacterEllipsis" />
         <ProgressBar Grid.Column="7" Minimum="0" Maximum="100" Value="{Binding ProgressValue}"
-                     IsIndeterminate="{Binding ProgressIndeterminate}" Height="8" VerticalAlignment="Center" />
+                     IsIndeterminate="{Binding ProgressIndeterminate}" IsVisible="{Binding IsBusy}"
+                     Width="160" Height="8" VerticalAlignment="Center" />
         <TextBlock Grid.Column="8" Text="{Binding ConflictSummary}" Foreground="#8D2E46"
                    FontWeight="SemiBold" VerticalAlignment="Center" />
       </Grid>
     </Border>
 
-    <Grid Grid.Row="3" ColumnDefinitions="220,5,*,5,310">
+    <Grid Grid.Row="3" ColumnDefinitions="260,5,*,5,310">
       <Border Grid.Column="0" Background="#F8F9F6" BorderBrush="#D3D7D9" BorderThickness="0,0,1,0">
-        <Grid RowDefinitions="Auto,*,Auto,150">
+        <Grid RowDefinitions="Auto,Auto,Auto,*">
           <TextBlock Grid.Row="0" Text="{DynamicResource Sheets}" FontWeight="SemiBold"
                      Margin="12,10,12,7" />
           <ListBox Grid.Row="1" ItemsSource="{Binding Sheets}" SelectedItem="{Binding SelectedSheet, Mode=TwoWay}"
-                   Background="Transparent" BorderThickness="0" Margin="5,0">
+                   Background="Transparent" BorderThickness="0" Margin="5,0" MaxHeight="150">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="local:SheetItemViewModel">
                 <Grid ColumnDefinitions="*,Auto" Margin="5,4">
@@ -89,10 +92,39 @@
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>
+          <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="12,8,12,5"
+                IsVisible="{Binding IsMergeMode}">
+            <TextBlock Text="{DynamicResource Conflicts}" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="1" Text="{Binding Conflicts.Count}" Foreground="#8D2E46"
+                       FontSize="11" VerticalAlignment="Center" />
+          </Grid>
+          <ListBox x:Name="ConflictNavigator" Grid.Row="3" ItemsSource="{Binding Conflicts}"
+                   SelectedItem="{Binding SelectedConflict, Mode=TwoWay}"
+                   PointerPressed="ConflictNavigatorPointerPressed"
+                   IsVisible="{Binding IsMergeMode}"
+                   Background="Transparent" BorderThickness="0" Margin="5,0,5,8"
+                   AutomationProperties.Name="Conflict navigator">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="local:ConflictItemViewModel">
+                <Grid ColumnDefinitions="58,*,Auto" Margin="6,5"
+                      AutomationProperties.Name="{Binding Location}">
+                  <TextBlock Text="{Binding Location}" FontWeight="SemiBold"
+                             FontFamily="Consolas" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Text="{Binding Kind}" FontSize="10"
+                             Foreground="#5C6570" TextTrimming="CharacterEllipsis"
+                             VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2" Text="{Binding ResolutionText}" FontSize="9"
+                             Foreground="#7A4A59" VerticalAlignment="Center" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
           <TextBlock Grid.Row="2" Text="{DynamicResource Recent}" FontWeight="SemiBold"
-                     Margin="12,8,12,5" />
+                     Margin="12,8,12,5" IsVisible="{Binding IsCompareMode}" />
           <ListBox Grid.Row="3" ItemsSource="{Binding RecentSessions}" SelectionChanged="RecentSelected"
-                   Background="Transparent" BorderThickness="0" Margin="5,0,5,8">
+                    IsVisible="{Binding IsCompareMode}"
+                    Background="Transparent" BorderThickness="0" Margin="5,0,5,8">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="local:RecentItemViewModel">
                 <StackPanel Margin="5,3">
@@ -127,8 +159,33 @@
             <Button Grid.Column="10" Content="{DynamicResource CopyCsv}" Click="CopyCsv" />
           </Grid>
         </Border>
-        <local:VirtualDiffGrid x:Name="DiffGrid" Grid.Row="1" Document="{Binding GridDocument}"
-                               AutomationProperties.Name="{DynamicResource ComparisonGrid}" />
+        <Grid Grid.Row="1" RowDefinitions="*,18" ColumnDefinitions="*,*,18,72">
+          <local:VirtualDiffGrid x:Name="DiffGrid" Grid.ColumnSpan="2"
+                                   Document="{Binding GridDocument}"
+                                   AutomationProperties.Name="{DynamicResource ComparisonGrid}" />
+          <ScrollBar x:Name="VerticalScrollBar" Grid.Column="2"
+                     Orientation="Vertical" Visibility="Visible" AllowAutoHide="False"
+                     SmallChange="1" Margin="1,0,0,0"
+                     ValueChanged="VerticalScrollValueChanged"
+                     AutomationProperties.Name="Scroll rows" />
+          <local:DiffChangeMap x:Name="ChangeMap" Grid.Column="3"
+                               Document="{Binding GridDocument}" Margin="1,0,0,0"
+                               ToolTip.Tip="Change map"
+                               AutomationProperties.Name="Change map" />
+          <Border Grid.Row="1" Grid.ColumnSpan="4" Background="#E9ECEF"
+                   BorderBrush="#D5D9DD" BorderThickness="0,1,0,0"
+                   IsHitTestVisible="False" />
+          <ScrollBar x:Name="LocalHorizontalScrollBar" Grid.Row="1" Grid.Column="0"
+                     Orientation="Horizontal" Visibility="Visible" AllowAutoHide="False"
+                     SmallChange="1" Margin="48,1,2,1"
+                     ValueChanged="HorizontalScrollValueChanged"
+                     AutomationProperties.Name="Scroll local columns" />
+          <ScrollBar x:Name="RemoteHorizontalScrollBar" Grid.Row="1" Grid.Column="1"
+                     Orientation="Horizontal" Visibility="Visible" AllowAutoHide="False"
+                     SmallChange="1" Margin="50,1,2,1"
+                     ValueChanged="HorizontalScrollValueChanged"
+                     AutomationProperties.Name="Scroll remote columns" />
+        </Grid>
       </Grid>
 
       <GridSplitter Grid.Column="3" Background="#D3D7D9" ResizeDirection="Columns" />
@@ -157,30 +214,44 @@
             </ScrollViewer>
           </TabItem>
           <TabItem Header="{DynamicResource Conflicts}" IsVisible="{Binding IsMergeMode}">
-            <Grid RowDefinitions="160,Auto,*" Margin="8">
-              <ListBox Grid.Row="0" ItemsSource="{Binding Conflicts}"
-                       SelectedItem="{Binding SelectedConflict, Mode=TwoWay}">
-                <ListBox.ItemTemplate>
-                  <DataTemplate x:DataType="local:ConflictItemViewModel">
-                    <Grid ColumnDefinitions="70,*,Auto" Margin="4,3">
-                      <TextBlock Text="{Binding Location}" FontWeight="SemiBold" />
-                      <TextBlock Grid.Column="1" Text="{Binding Kind}" TextTrimming="CharacterEllipsis" />
-                      <TextBlock Grid.Column="2" Text="{Binding ResolutionText}" Foreground="#68717B" FontSize="10" />
-                    </Grid>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
-              <Grid Grid.Row="1" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="6" RowSpacing="6"
-                    Margin="0,8">
-                <Button Content="{DynamicResource UseLocal}" Command="{Binding UseLocalCommand}" />
-                <Button Grid.Column="1" Content="{DynamicResource UseRemote}" Command="{Binding UseRemoteCommand}" />
-                <Button Grid.Row="1" Content="{DynamicResource UseBoth}" Command="{Binding UseBothCommand}" />
-                <Button Grid.Row="1" Grid.Column="1" Content="{DynamicResource UseCustom}"
-                        Command="{Binding UseCustomCommand}" />
-              </Grid>
-              <TextBox Grid.Row="2" Classes="compact" Text="{Binding CustomValue, Mode=TwoWay}"
-                       PlaceholderText="{DynamicResource CustomValue}" AcceptsReturn="True" TextWrapping="Wrap" />
-            </Grid>
+            <ScrollViewer>
+              <StackPanel Margin="12" Spacing="8">
+                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                  <TextBlock Text="{Binding SelectedConflict.Location}" FontSize="17"
+                             FontWeight="SemiBold" FontFamily="Consolas" />
+                  <TextBlock Grid.Column="1" Text="{Binding SelectedConflict.ResolutionText}"
+                             Foreground="#8D2E46" FontSize="11" VerticalAlignment="Center" />
+                  <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SelectedConflict.Kind}"
+                             Foreground="#68717B" FontSize="11" />
+                </Grid>
+                <Border BorderBrush="#D3D7D9" BorderThickness="0,0,0,1" />
+
+                <TextBlock Classes="label" Text="{DynamicResource Base}" />
+                <TextBox Text="{Binding SelectedConflict.BaseValue, Mode=OneWay}"
+                         IsReadOnly="True" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{DynamicResource Local}" Foreground="#197044" />
+                <TextBox Text="{Binding SelectedConflict.LocalValue, Mode=OneWay}"
+                         IsReadOnly="True" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{DynamicResource Remote}" Foreground="#A13055" />
+                <TextBox Text="{Binding SelectedConflict.RemoteValue, Mode=OneWay}"
+                         IsReadOnly="True" TextWrapping="Wrap" />
+
+                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto"
+                      ColumnSpacing="6" RowSpacing="6" Margin="0,4,0,0">
+                  <Button Content="{DynamicResource UseLocal}" Command="{Binding UseLocalCommand}" />
+                  <Button Grid.Column="1" Content="{DynamicResource UseRemote}"
+                          Command="{Binding UseRemoteCommand}" />
+                  <Button Grid.Row="1" Grid.ColumnSpan="2" Content="{DynamicResource UseBoth}"
+                          Command="{Binding UseBothCommand}" />
+                </Grid>
+
+                <TextBlock Classes="label" Text="{DynamicResource CustomValue}" Margin="0,4,0,0" />
+                <TextBox Classes="compact" Text="{Binding CustomValue, Mode=TwoWay}"
+                         PlaceholderText="{DynamicResource CustomValue}" AcceptsReturn="True"
+                         TextWrapping="Wrap" MinHeight="80" />
+                <Button Content="{DynamicResource UseCustom}" Command="{Binding UseCustomCommand}" />
+              </StackPanel>
+            </ScrollViewer>
           </TabItem>
         </TabControl>
       </Border>
