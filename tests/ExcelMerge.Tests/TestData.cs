@@ -1,7 +1,7 @@
 using ExcelMerge.Domain;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace ExcelMerge.Rewrite.Tests;
+namespace ExcelMerge.Tests;
 
 internal static class TestData
 {
@@ -50,7 +50,7 @@ internal sealed class TestDirectory : IDisposable
     {
         Path = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),
-            "ExcelMerge.Rewrite.Tests",
+            "ExcelMerge.Tests",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path);
     }

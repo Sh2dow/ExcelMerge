@@ -63,7 +63,7 @@
 #*.RTF   diff=astextplain
 
 ###############################################################################
-# ExcelMerge rewrite merge driver
+# ExcelMerge merge driver
 ###############################################################################
 *.xlsx -text merge=excelmerge
 *.csv  text merge=excelmerge

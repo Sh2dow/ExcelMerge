@@ -2,7 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Xml;
 
-namespace ExcelMerge.Rewrite.Benchmarks;
+namespace ExcelMerge.Benchmarks;
 
 public enum XlsxCorpusLayout
 {
@@ -588,7 +588,7 @@ internal static class BenchmarkFileSystem
 
     public static string CreateTemporaryDirectory(string prefix)
     {
-        var baseDirectory = Path.Combine(Path.GetTempPath(), "ExcelMerge.Rewrite.Benchmarks");
+        var baseDirectory = Path.Combine(Path.GetTempPath(), "ExcelMerge.Benchmarks");
         Directory.CreateDirectory(baseDirectory);
         for (var attempt = 0; attempt < 10; attempt++)
         {

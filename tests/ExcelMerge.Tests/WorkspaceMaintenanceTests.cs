@@ -1,7 +1,7 @@
 using ExcelMerge.Storage;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace ExcelMerge.Rewrite.Tests;
+namespace ExcelMerge.Tests;
 
 [TestClass]
 public sealed class WorkspaceMaintenanceTests
@@ -149,7 +149,7 @@ public sealed class WorkspaceMaintenanceTests
             BaseDirectory = baseDirectory,
             DirectoryPrefix = "maintenance-",
             OwnershipMarkerFileName = ".owner",
-            OwnershipMarkerValue = "ExcelMerge.Rewrite.Tests.Workspace/v1",
+            OwnershipMarkerValue = "ExcelMerge.Tests.Workspace/v1",
             ActiveLeaseFileName = ".lease",
             DeleteOnDispose = false,
             CleanupRetryDelay = TimeSpan.FromMilliseconds(1),

@@ -4,7 +4,7 @@ using ExcelMerge.OpenXml;
 using ExcelMerge.Storage;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace ExcelMerge.Rewrite.Tests;
+namespace ExcelMerge.Tests;
 
 [TestClass]
 public sealed class ApplicationTests

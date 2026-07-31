@@ -2,7 +2,7 @@ using BenchmarkDotNet.Attributes;
 using ExcelMerge.Domain;
 using ExcelMerge.Storage;
 
-namespace ExcelMerge.Rewrite.Benchmarks;
+namespace ExcelMerge.Benchmarks;
 
 [BenchmarkCategory("Storage", "Append")]
 public class ChunkedCellStoreAppendBenchmarks

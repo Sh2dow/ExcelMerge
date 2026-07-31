@@ -4,7 +4,7 @@ using ExcelMerge.Desktop;
 using ExcelMerge.Engine;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace ExcelMerge.Rewrite.Tests;
+namespace ExcelMerge.Tests;
 
 [TestClass]
 public sealed class DesktopTests

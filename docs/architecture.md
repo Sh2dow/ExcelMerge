@@ -1,8 +1,8 @@
-# Rewrite Architecture
+# Architecture
 
 ## Principles
 
-- The rewrite does not reference the legacy core, NPOI, NetDiff, FastWpfGrid, or the WPF application.
+- The current implementation does not reference the legacy core, NPOI, NetDiff, FastWpfGrid, or the WPF application.
 - Domain and merge behavior do not depend on Avalonia or Open XML SDK types.
 - Workbook parsing, indexing, diffing, and saving never run on the UI thread.
 - Large worksheets are streamed into bounded, disk-backed indexes rather than materialized as UI objects.

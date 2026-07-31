@@ -3,7 +3,7 @@ using ExcelMerge.Domain;
 using ExcelMerge.OpenXml;
 using ExcelMerge.Storage;
 
-namespace ExcelMerge.Rewrite.Benchmarks;
+namespace ExcelMerge.Benchmarks;
 
 [BenchmarkCategory("OpenXml", "Reader", "Metadata")]
 public class OpenXmlMetadataBenchmarks

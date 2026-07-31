@@ -3,7 +3,7 @@ using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 
-namespace ExcelMerge.Rewrite.Benchmarks;
+namespace ExcelMerge.Benchmarks;
 
 internal static class Program
 {

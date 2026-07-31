@@ -1,7 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using ExcelMerge.Engine;
 
-namespace ExcelMerge.Rewrite.Benchmarks;
+namespace ExcelMerge.Benchmarks;
 
 [BenchmarkCategory("Engine")]
 public class EngineBenchmarks

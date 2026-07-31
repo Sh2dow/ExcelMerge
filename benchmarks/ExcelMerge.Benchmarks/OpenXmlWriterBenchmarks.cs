@@ -2,7 +2,7 @@ using BenchmarkDotNet.Attributes;
 using ExcelMerge.Domain;
 using ExcelMerge.OpenXml;
 
-namespace ExcelMerge.Rewrite.Benchmarks;
+namespace ExcelMerge.Benchmarks;
 
 [BenchmarkCategory("OpenXml", "Writer", "Transactional")]
 public class OpenXmlTransactionalWriterBenchmarks

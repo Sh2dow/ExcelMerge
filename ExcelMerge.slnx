@@ -1,6 +1,6 @@
 <Solution>
   <Folder Name="/benchmarks/">
-    <Project Path="benchmarks/ExcelMerge.Rewrite.Benchmarks/ExcelMerge.Rewrite.Benchmarks.csproj" />
+    <Project Path="benchmarks/ExcelMerge.Benchmarks/ExcelMerge.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/ExcelMerge.Application/ExcelMerge.Application.csproj" />
@@ -13,6 +13,6 @@
     <Project Path="src/ExcelMerge.Storage/ExcelMerge.Storage.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/ExcelMerge.Rewrite.Tests/ExcelMerge.Rewrite.Tests.csproj" />
+    <Project Path="tests/ExcelMerge.Tests/ExcelMerge.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,7 +1,7 @@
 using ExcelMerge.Domain;
 using ExcelMerge.Engine;
 
-namespace ExcelMerge.Rewrite.Benchmarks;
+namespace ExcelMerge.Benchmarks;
 
 internal static class BenchmarkData
 {

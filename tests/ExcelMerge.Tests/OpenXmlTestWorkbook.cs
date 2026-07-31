@@ -1,7 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 
-namespace ExcelMerge.Rewrite.Tests;
+namespace ExcelMerge.Tests;
 
 internal static class OpenXmlTestWorkbook
 {
