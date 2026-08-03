@@ -152,7 +152,7 @@ public sealed class OpenXmlReaderTests
         Assert.AreEqual("value", row.Value.Cells.Span[0].Value.Scalar?.TextValue);
         Assert.IsNull(row.Value.Cells.Span[0].Value.DisplayText);
 
-        var exception = await Assert.ThrowsExceptionAsync<OpenXmlReaderException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<OpenXmlReaderException>(() =>
             reader.IndexAsync(
                 path,
                 workspace,
@@ -168,11 +168,11 @@ public sealed class OpenXmlReaderTests
         var fakeXlsx = temporaryDirectory.GetPath("fake.xlsx");
         await File.WriteAllTextAsync(fakeXlsx, "not a zip package");
 
-        var legacy = await Assert.ThrowsExceptionAsync<OpenXmlReaderException>(() =>
+        var legacy = await Assert.ThrowsExactlyAsync<OpenXmlReaderException>(() =>
             reader.ReadMetadataAsync(temporaryDirectory.GetPath("legacy.xls")).AsTask());
-        var delimited = await Assert.ThrowsExceptionAsync<OpenXmlReaderException>(() =>
+        var delimited = await Assert.ThrowsExactlyAsync<OpenXmlReaderException>(() =>
             reader.ReadMetadataAsync(temporaryDirectory.GetPath("data.csv")).AsTask());
-        var notZip = await Assert.ThrowsExceptionAsync<OpenXmlReaderException>(() =>
+        var notZip = await Assert.ThrowsExactlyAsync<OpenXmlReaderException>(() =>
             reader.ReadMetadataAsync(fakeXlsx).AsTask());
 
         Assert.AreEqual(OpenXmlReaderError.LegacyBinaryWorkbook, legacy.Error);
@@ -195,7 +195,7 @@ public sealed class OpenXmlReaderTests
             BaseDirectory = temporaryDirectory.Path,
         });
 
-        var exception = await Assert.ThrowsExceptionAsync<OpenXmlReaderException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<OpenXmlReaderException>(() =>
             reader.IndexAsync(path, workspace).AsTask());
 
         Assert.AreEqual(OpenXmlReaderError.InvalidWorksheet, exception.Error);
@@ -225,7 +225,7 @@ public sealed class OpenXmlReaderTests
             BaseDirectory = temporaryDirectory.Path,
         });
 
-        var exception = await Assert.ThrowsExceptionAsync<OpenXmlReaderException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<OpenXmlReaderException>(() =>
             reader.IndexAsync(path, workspace, progress: progress).AsTask());
 
         Assert.IsTrue(changed);

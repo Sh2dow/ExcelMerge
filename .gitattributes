@@ -61,10 +61,3 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
-
-###############################################################################
-# ExcelMerge merge driver
-###############################################################################
-*.xlsx -text merge=excelmerge
-*.csv  text merge=excelmerge
-*.tsv  text merge=excelmerge

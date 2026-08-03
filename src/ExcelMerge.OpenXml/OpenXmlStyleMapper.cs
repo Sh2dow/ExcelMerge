@@ -241,7 +241,8 @@ internal sealed class OpenXmlStyleMapper
             part.Stylesheet = new Stylesheet();
         }
 
-        var styles = part.Stylesheet;
+        var styles = part.Stylesheet ?? throw InvalidStyles(
+            "The LOCAL style table has no stylesheet root element.");
         styles.Fonts ??= new Fonts(new Font());
         styles.Fills ??= new Fills(
             new Fill(new PatternFill { PatternType = PatternValues.None }),

@@ -107,7 +107,7 @@ public sealed class DelimitedTests
         await File.WriteAllTextAsync(path, "a,b");
         var reader = new DelimitedWorkbookReader();
 
-        var exception = await Assert.ThrowsExceptionAsync<DelimitedReaderException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<DelimitedReaderException>(() =>
             reader.ReadMetadataAsync(path).AsTask());
         var metadata = await reader.ReadMetadataAsync(
             path,
@@ -133,7 +133,7 @@ public sealed class DelimitedTests
             BaseDirectory = temporaryDirectory.Path,
         });
 
-        var exception = await Assert.ThrowsExceptionAsync<DelimitedReaderException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<DelimitedReaderException>(() =>
             new DelimitedWorkbookReader().IndexAsync(path, workspace).AsTask());
 
         Assert.AreEqual(DelimitedReaderError.UnterminatedQuotedField, exception.Error);
@@ -161,24 +161,24 @@ public sealed class DelimitedTests
         await File.WriteAllBytesAsync(invalidUtf8Path, [0xC3, 0x28]);
         await File.WriteAllBytesAsync(utf32Path, [0xFF, 0xFE, 0x00, 0x00, 0x61, 0x00, 0x00, 0x00]);
 
-        var columns = await Assert.ThrowsExceptionAsync<DelimitedReaderException>(() =>
+        var columns = await Assert.ThrowsExactlyAsync<DelimitedReaderException>(() =>
             reader.IndexAsync(
                 columnsPath,
                 workspace,
                 new DelimitedReaderOptions { MaximumColumns = 1 }).AsTask());
-        var rows = await Assert.ThrowsExceptionAsync<DelimitedReaderException>(() =>
+        var rows = await Assert.ThrowsExactlyAsync<DelimitedReaderException>(() =>
             reader.IndexAsync(
                 rowsPath,
                 workspace,
                 new DelimitedReaderOptions { MaximumRows = 1 }).AsTask());
-        var field = await Assert.ThrowsExceptionAsync<DelimitedReaderException>(() =>
+        var field = await Assert.ThrowsExactlyAsync<DelimitedReaderException>(() =>
             reader.IndexAsync(
                 fieldPath,
                 workspace,
                 new DelimitedReaderOptions { MaximumFieldCharacters = 3 }).AsTask());
-        var invalidUtf8 = await Assert.ThrowsExceptionAsync<DelimitedReaderException>(() =>
+        var invalidUtf8 = await Assert.ThrowsExactlyAsync<DelimitedReaderException>(() =>
             reader.IndexAsync(invalidUtf8Path, workspace).AsTask());
-        var utf32 = await Assert.ThrowsExceptionAsync<DelimitedReaderException>(() =>
+        var utf32 = await Assert.ThrowsExactlyAsync<DelimitedReaderException>(() =>
             reader.IndexAsync(utf32Path, workspace).AsTask());
 
         Assert.AreEqual(DelimitedReaderError.ColumnLimitExceeded, columns.Error);
@@ -270,9 +270,9 @@ public sealed class DelimitedTests
                 }),
         };
 
-        var invalid = await Assert.ThrowsExceptionAsync<DelimitedWriterException>(() =>
+        var invalid = await Assert.ThrowsExactlyAsync<DelimitedWriterException>(() =>
             writer.WriteAsync(path, invalidRows).AsTask());
-        var exists = await Assert.ThrowsExceptionAsync<DelimitedWriterException>(() =>
+        var exists = await Assert.ThrowsExactlyAsync<DelimitedWriterException>(() =>
             writer.WriteAsync(
                 path,
                 new[] { TestData.Row(0, (0, TestData.Text("replacement"))) },
@@ -286,7 +286,7 @@ public sealed class DelimitedTests
                 cancellation.Cancel();
             }
         });
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() =>
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
             writer.WriteAsync(
                 path,
                 new[] { TestData.Row(0, (0, TestData.Text("replacement"))) },

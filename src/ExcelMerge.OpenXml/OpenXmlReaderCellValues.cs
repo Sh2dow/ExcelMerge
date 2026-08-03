@@ -35,7 +35,9 @@ internal sealed class OpenXmlReaderStyleCatalog
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var stylesheet = part.Stylesheet;
+            var stylesheet = part.Stylesheet ?? throw InvalidStyles(
+                sourcePath,
+                "The workbook style part does not contain a stylesheet root element.");
             var customFormats = new Dictionary<uint, string>();
             if (stylesheet.NumberingFormats is { } numberingFormats)
             {

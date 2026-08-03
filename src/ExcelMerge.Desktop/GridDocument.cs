@@ -32,12 +32,37 @@ public enum GridPane
     Remote,
 }
 
+public enum GridRowProjection
+{
+    Aligned,
+    Local,
+    Remote,
+}
+
 public readonly record struct GridRowDescriptor(
     int? BaseRowIndex,
     int? LocalRowIndex,
     int? RemoteRowIndex,
     GridRowVisualState State,
-    int ConflictCount);
+    int ConflictCount,
+    GridRowProjection Projection = GridRowProjection.Aligned)
+{
+    public bool MatchesLocation(
+        int? baseRowIndex,
+        int? localRowIndex,
+        int? remoteRowIndex) =>
+        Projection switch
+        {
+            GridRowProjection.Local =>
+                BaseRowIndex == baseRowIndex && LocalRowIndex == localRowIndex,
+            GridRowProjection.Remote =>
+                BaseRowIndex == baseRowIndex && RemoteRowIndex == remoteRowIndex,
+            _ =>
+                BaseRowIndex == baseRowIndex &&
+                LocalRowIndex == localRowIndex &&
+                RemoteRowIndex == remoteRowIndex,
+        };
+}
 
 public sealed record GridLoadedRow(
     int ViewRowIndex,
@@ -159,9 +184,10 @@ public sealed class GridDocument
 
     public static GridDocument FromMerge(
         MergeSheetResult sheet,
-        IReadOnlySet<long> resolvedConflicts,
+        IReadOnlyDictionary<long, ResolutionKind> resolutions,
         bool hideUnchanged = false)
     {
+        ArgumentNullException.ThrowIfNull(resolutions);
         var conflicts = sheet.Merge.Conflicts.ToArray();
         var rows = new List<GridRowDescriptor>();
         var cellStates = new Dictionary<(int, int), GridCellVisualState>();
@@ -169,9 +195,15 @@ public sealed class GridDocument
         foreach (var row in sheet.Merge.ViewRows.Span)
         {
             var resolved = row.ConflictCount != 0;
+            var useBoth = false;
             for (var offset = 0; offset < row.ConflictCount; offset++)
             {
-                resolved &= resolvedConflicts.Contains(conflicts[row.ConflictStartIndex + offset].Id);
+                var conflictId = conflicts[row.ConflictStartIndex + offset].Id;
+                var resolution = resolutions.TryGetValue(conflictId, out var kind)
+                    ? kind
+                    : ResolutionKind.Unresolved;
+                resolved &= resolution != ResolutionKind.Unresolved;
+                useBoth |= resolution == ResolutionKind.Both;
             }
 
             var state = row.State switch
@@ -187,26 +219,51 @@ public sealed class GridDocument
                 continue;
             }
 
-            var viewRowIndex = rows.Count;
-            rows.Add(new GridRowDescriptor(
-                row.BaseRowIndex,
-                row.LocalRowIndex,
-                row.RemoteRowIndex,
-                state,
-                row.ConflictCount));
-            for (var offset = 0; offset < row.ConflictCount; offset++)
+            var firstViewRowIndex = rows.Count;
+            if (useBoth && row.LocalRowIndex.HasValue && row.RemoteRowIndex.HasValue)
             {
-                var conflict = conflicts[row.ConflictStartIndex + offset];
-                var conflictState = resolvedConflicts.Contains(conflict.Id)
-                    ? GridCellVisualState.Resolved
-                    : GridCellVisualState.Conflict;
-                if (conflict.Location.ColumnIndex is { } columnIndex)
+                rows.Add(new GridRowDescriptor(
+                    row.BaseRowIndex,
+                    row.LocalRowIndex,
+                    RemoteRowIndex: null,
+                    state,
+                    row.ConflictCount,
+                    GridRowProjection.Local));
+                rows.Add(new GridRowDescriptor(
+                    row.BaseRowIndex,
+                    LocalRowIndex: null,
+                    row.RemoteRowIndex,
+                    state,
+                    row.ConflictCount,
+                    GridRowProjection.Remote));
+            }
+            else
+            {
+                rows.Add(new GridRowDescriptor(
+                    row.BaseRowIndex,
+                    row.LocalRowIndex,
+                    row.RemoteRowIndex,
+                    state,
+                    row.ConflictCount));
+            }
+
+            for (var viewRowIndex = firstViewRowIndex; viewRowIndex < rows.Count; viewRowIndex++)
+            {
+                for (var offset = 0; offset < row.ConflictCount; offset++)
                 {
-                    SetVisualState(cellStates, (viewRowIndex, columnIndex), conflictState);
-                }
-                else
-                {
-                    SetVisualState(rowHeaderStates, viewRowIndex, conflictState);
+                    var conflict = conflicts[row.ConflictStartIndex + offset];
+                    var conflictState = resolutions.TryGetValue(conflict.Id, out var resolution) &&
+                        resolution != ResolutionKind.Unresolved
+                            ? GridCellVisualState.Resolved
+                            : GridCellVisualState.Conflict;
+                    if (conflict.Location.ColumnIndex is { } columnIndex)
+                    {
+                        SetVisualState(cellStates, (viewRowIndex, columnIndex), conflictState);
+                    }
+                    else
+                    {
+                        SetVisualState(rowHeaderStates, viewRowIndex, conflictState);
+                    }
                 }
             }
         }
@@ -288,10 +345,7 @@ public sealed class GridDocument
     {
         for (var index = 0; index < _rows.Length; index++)
         {
-            var row = _rows[index];
-            if (row.BaseRowIndex == baseRowIndex &&
-                row.LocalRowIndex == localRowIndex &&
-                row.RemoteRowIndex == remoteRowIndex)
+            if (_rows[index].MatchesLocation(baseRowIndex, localRowIndex, remoteRowIndex))
             {
                 return index;
             }

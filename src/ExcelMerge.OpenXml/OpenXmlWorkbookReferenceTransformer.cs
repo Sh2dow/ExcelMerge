@@ -33,9 +33,10 @@ internal static class OpenXmlWorkbookReferenceTransformer
         WorkbookPart workbookPart)
     {
         ArgumentNullException.ThrowIfNull(workbookPart);
-        var sheets = GetSheets(workbookPart);
+        var workbook = GetWorkbook(workbookPart);
+        var sheets = GetSheets(workbook);
         var result = new List<OpenXmlDefinedNameState>();
-        foreach (var definedName in workbookPart.Workbook.DefinedNames?
+        foreach (var definedName in workbook.DefinedNames?
             .Elements<DefinedName>() ?? [])
         {
             string? scopeRelationshipId = null;
@@ -127,7 +128,7 @@ internal static class OpenXmlWorkbookReferenceTransformer
             return changed;
         }
 
-        foreach (var sheet in GetSheets(localWorkbookPart))
+        foreach (var sheet in GetSheets(GetWorkbook(localWorkbookPart)))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var relationshipId = sheet.Id?.Value ?? throw InvalidPackage(
@@ -184,7 +185,8 @@ internal static class OpenXmlWorkbookReferenceTransformer
         IReadOnlyList<OpenXmlSheetReferenceTransform> transforms,
         CancellationToken cancellationToken)
     {
-        var sheets = GetSheets(workbookPart);
+        var workbook = GetWorkbook(workbookPart);
+        var sheets = GetSheets(workbook);
         var positions = sheets
             .Select((sheet, index) => (RelationshipId: sheet.Id?.Value, Index: index))
             .Where(static item => item.RelationshipId is not null)
@@ -227,7 +229,7 @@ internal static class OpenXmlWorkbookReferenceTransformer
             }
         }
 
-        if (workbookPart.Workbook.DefinedNames is { HasChildren: false } emptyDefinedNames)
+        if (workbook.DefinedNames is { HasChildren: false } emptyDefinedNames)
         {
             emptyDefinedNames.Remove();
             changed = true;
@@ -247,8 +249,10 @@ internal static class OpenXmlWorkbookReferenceTransformer
             return false;
         }
 
-        var remoteSheets = GetSheets(remoteWorkbookPart);
-        var localSheets = GetSheets(localWorkbookPart);
+        var remoteWorkbook = GetWorkbook(remoteWorkbookPart);
+        var localWorkbook = GetWorkbook(localWorkbookPart);
+        var remoteSheets = GetSheets(remoteWorkbook);
+        var localSheets = GetSheets(localWorkbook);
         var changed = false;
         foreach (var patch in compiled.Worksheets.Where(static patch =>
             patch.Action == CompiledWorksheetAction.ImportRemote))
@@ -269,7 +273,7 @@ internal static class OpenXmlWorkbookReferenceTransformer
                     $"Imported worksheet '{resultName}' could not be resolved for defined-name import.");
             }
 
-            var sourceNames = remoteWorkbookPart.Workbook.DefinedNames?
+            var sourceNames = remoteWorkbook.DefinedNames?
                 .Elements<DefinedName>()
                 .Where(name => name.LocalSheetId?.Value == (uint)remotePosition)
                 .ToArray() ?? [];
@@ -278,11 +282,11 @@ internal static class OpenXmlWorkbookReferenceTransformer
                 continue;
             }
 
-            var container = localWorkbookPart.Workbook.DefinedNames;
+            var container = localWorkbook.DefinedNames;
             if (container is null)
             {
                 container = new DefinedNames();
-                localWorkbookPart.Workbook.DefinedNames = container;
+                localWorkbook.DefinedNames = container;
             }
 
             foreach (var sourceName in sourceNames)
@@ -407,8 +411,10 @@ internal static class OpenXmlWorkbookReferenceTransformer
         foreach (var tablePart in worksheetPart.TableDefinitionParts)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var table = tablePart.Table ?? throw InvalidPackage(
+                "A result table definition does not contain a table.");
             var tableChanged = false;
-            foreach (var formula in tablePart.Table
+            foreach (var formula in table
                 .Descendants<OpenXmlLeafTextElement>()
                 .Where(static element => element is CalculatedColumnFormula or TotalsRowFormula))
             {
@@ -428,7 +434,7 @@ internal static class OpenXmlWorkbookReferenceTransformer
 
             if (tableChanged)
             {
-                tablePart.Table.Save();
+                table.Save();
                 changed = true;
             }
         }
@@ -509,8 +515,12 @@ internal static class OpenXmlWorkbookReferenceTransformer
         elementType == typeof(Formula1) ||
         elementType == typeof(Formula2);
 
-    private static List<Sheet> GetSheets(WorkbookPart workbookPart) =>
-        workbookPart.Workbook.Sheets?.Elements<Sheet>().ToList() ??
+    private static Workbook GetWorkbook(WorkbookPart workbookPart) =>
+        workbookPart.Workbook ??
+        throw InvalidPackage("The workbook part does not contain a workbook.");
+
+    private static List<Sheet> GetSheets(Workbook workbook) =>
+        workbook.Sheets?.Elements<Sheet>().ToList() ??
         throw InvalidPackage("The workbook does not contain a sheet collection.");
 
     private static string CreateScratchPath(string directory, string prefix)

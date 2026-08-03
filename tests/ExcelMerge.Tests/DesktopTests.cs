@@ -1,6 +1,7 @@
 using Avalonia;
 using ExcelMerge.Application;
 using ExcelMerge.Desktop;
+using ExcelMerge.Domain;
 using ExcelMerge.Engine;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -36,7 +37,7 @@ public sealed class DesktopTests
         Assert.AreEqual(-1, merge.ViewRows.Span[0].ConflictStartIndex);
         Assert.AreEqual(0, merge.ViewRows.Span[0].ConflictCount);
 
-        var document = GridDocument.FromMerge(result, new HashSet<long>());
+        var document = GridDocument.FromMerge(result, new Dictionary<long, ResolutionKind>());
         Assert.AreEqual(2, document.RowCount);
         Assert.AreEqual(GridRowVisualState.Unchanged, document.Rows[0].State);
         Assert.AreEqual(GridRowVisualState.Conflict, document.Rows[1].State);
@@ -70,7 +71,10 @@ public sealed class DesktopTests
 
         var resolved = GridDocument.FromMerge(
             result,
-            new HashSet<long> { merge.Conflicts.Span[0].Id },
+            new Dictionary<long, ResolutionKind>
+            {
+                [merge.Conflicts.Span[0].Id] = ResolutionKind.Local,
+            },
             hideUnchanged: true);
         Assert.AreEqual(1, resolved.RowCount);
         Assert.AreEqual(GridRowVisualState.Resolved, resolved.Rows[0].State);
@@ -104,7 +108,7 @@ public sealed class DesktopTests
             new ThreeWayMergeOptions { SheetGroupId = "sheet" });
         var result = new MergeSheetResult("sheet", baseSheet, localSheet, remoteSheet, merge);
         var conflict = merge.Conflicts.ToArray().Single();
-        var document = GridDocument.FromMerge(result, new HashSet<long>());
+        var document = GridDocument.FromMerge(result, new Dictionary<long, ResolutionKind>());
         var conflictRow = Enumerable.Range(0, document.RowCount)
             .Single(index => document.Rows[index].State == GridRowVisualState.Conflict);
 
@@ -116,9 +120,46 @@ public sealed class DesktopTests
             document.RowMarkers.Single());
         Assert.AreEqual(0, document.CellMarkers.Count);
 
-        var resolved = GridDocument.FromMerge(result, new HashSet<long> { conflict.Id });
+        var resolved = GridDocument.FromMerge(
+            result,
+            new Dictionary<long, ResolutionKind> { [conflict.Id] = ResolutionKind.Local });
         Assert.AreEqual(GridCellVisualState.Resolved, resolved.GetRowHeaderVisualState(conflictRow));
         Assert.AreEqual(GridCellVisualState.None, resolved.GetCellVisualState(conflictRow, 0));
+    }
+
+    [TestMethod]
+    public async Task Merge_grid_projects_both_as_local_then_remote_rows()
+    {
+        var baseSheet = TestData.Sheet(TestData.Row(0, (0, TestData.Text("base"))));
+        var localSheet = TestData.Sheet(TestData.Row(0, (0, TestData.Text("LOCAL"))));
+        var remoteSheet = TestData.Sheet(TestData.Row(0, (0, TestData.Text("REMOTE"))));
+        var merge = await new ThreeWayMergeEngine().MergeAsync(
+            baseSheet,
+            localSheet,
+            remoteSheet,
+            new ThreeWayMergeOptions { SheetGroupId = "sheet" });
+        var result = new MergeSheetResult("sheet", baseSheet, localSheet, remoteSheet, merge);
+        var conflict = merge.Conflicts.ToArray().Single();
+
+        var document = GridDocument.FromMerge(
+            result,
+            new Dictionary<long, ResolutionKind> { [conflict.Id] = ResolutionKind.Both });
+
+        Assert.AreEqual(2, document.RowCount);
+        Assert.AreEqual(GridRowProjection.Local, document.Rows[0].Projection);
+        Assert.AreEqual(0, document.Rows[0].LocalRowIndex);
+        Assert.IsNull(document.Rows[0].RemoteRowIndex);
+        Assert.AreEqual(GridRowProjection.Remote, document.Rows[1].Projection);
+        Assert.IsNull(document.Rows[1].LocalRowIndex);
+        Assert.AreEqual(0, document.Rows[1].RemoteRowIndex);
+        Assert.AreEqual(GridCellVisualState.Resolved, document.GetCellVisualState(0, 0));
+        Assert.AreEqual(GridCellVisualState.Resolved, document.GetCellVisualState(1, 0));
+        Assert.AreEqual(0, document.FindViewRow(0, 0, 0));
+
+        var conflictItem = new ConflictItemViewModel(conflict, ResolutionKind.Both);
+        Assert.IsTrue(conflictItem.SupportsBoth);
+        Assert.IsTrue(conflictItem.Matches(document.Rows[0], 0));
+        Assert.IsTrue(conflictItem.Matches(document.Rows[1], 0));
     }
 
     [TestMethod]
@@ -144,7 +185,7 @@ public sealed class DesktopTests
             new ThreeWayMergeOptions { SheetGroupId = "sheet" });
         var document = GridDocument.FromMerge(
             new MergeSheetResult("sheet", sheet, sheet, sheet, merge),
-            new HashSet<long>());
+            new Dictionary<long, ResolutionKind>());
         var grid = new VirtualDiffGrid { Document = document };
         grid.Measure(new Size(1_000, 500));
         grid.Arrange(new Rect(0, 0, 1_000, 500));
@@ -188,7 +229,7 @@ public sealed class DesktopTests
             new ThreeWayMergeOptions { SheetGroupId = "sheet" });
         var document = GridDocument.FromMerge(
             new MergeSheetResult("sheet", baseSheet, localSheet, remoteSheet, merge),
-            new HashSet<long>());
+            new Dictionary<long, ResolutionKind>());
         var grid = new VirtualDiffGrid { Document = document };
 
         grid.Measure(new Size(1_000, 500));

@@ -418,6 +418,14 @@ public sealed class OpenXmlWorkbookReader : IOpenXmlWorkbookReader
         }
 
         var workbook = workbookPart.Workbook;
+        if (workbook is null)
+        {
+            throw new OpenXmlReaderException(
+                OpenXmlReaderError.InvalidPackage,
+                "The workbook part does not contain a workbook root element.",
+                source.FullPath);
+        }
+
         var sheetsElement = workbook.Sheets;
         if (sheetsElement is null)
         {

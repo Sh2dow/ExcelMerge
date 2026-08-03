@@ -232,10 +232,11 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
             OpenXmlWriterError.InvalidPackage,
             "The LOCAL package does not contain a workbook part.",
             transactionPath);
+        var workbook = GetRequiredWorkbook(workbookPart, "LOCAL");
         var originalDefinedNames = OpenXmlWorkbookReferenceTransformer.CaptureDefinedNames(workbookPart);
         var referenceTransforms = OpenXmlWorkbookReferenceTransformer.BuildTransforms(compiled);
         ValidateFinalWorksheetNames(workbookPart, compiled);
-        var uses1904DateSystem = workbookPart.Workbook.WorkbookProperties?.Date1904?.Value ?? false;
+        var uses1904DateSystem = workbook.WorkbookProperties?.Date1904?.Value ?? false;
         SpreadsheetDocument? remoteDocument = null;
         WorkbookPart? remoteWorkbookPart = null;
         OpenXmlWriterSharedStrings? remoteSharedStrings = null;
@@ -337,7 +338,7 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
                 cancellationToken);
             if (compiled.Worksheets.Count != 0 || referencesChanged)
             {
-                workbookPart.Workbook.Save();
+                workbook.Save();
             }
         }
         finally
@@ -353,17 +354,17 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
                 workbookPart.DeletePart(calculationChainPart);
             }
 
-            var calculation = workbookPart.Workbook.CalculationProperties;
+            var calculation = workbook.CalculationProperties;
             if (calculation is null)
             {
                 calculation = new CalculationProperties();
-                workbookPart.Workbook.Append(calculation);
+                workbook.Append(calculation);
             }
 
             calculation.CalculationMode = CalculateModeValues.Auto;
             calculation.FullCalculationOnLoad = true;
             calculation.ForceFullCalculation = true;
-            workbookPart.Workbook.Save();
+            workbook.Save();
         }
 
         NormalizeFontElementOrder(workbookPart);
@@ -433,7 +434,8 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
         var relationshipId = patch.LocalRelationshipId ?? throw new OpenXmlWriterException(
             OpenXmlWriterError.InvalidPlan,
             $"Worksheet group '{patch.SheetGroupId}' has no LOCAL relationship.");
-        var sheet = workbookPart.Workbook.Sheets?
+        var workbook = GetRequiredWorkbook(workbookPart, "LOCAL");
+        var sheet = workbook.Sheets?
             .Elements<Sheet>()
             .FirstOrDefault(candidate => string.Equals(
                 candidate.Id?.Value,
@@ -467,7 +469,8 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
             return;
         }
 
-        var sheets = workbookPart.Workbook.Sheets ?? throw new OpenXmlWriterException(
+        var workbook = GetRequiredWorkbook(workbookPart, "LOCAL");
+        var sheets = workbook.Sheets ?? throw new OpenXmlWriterException(
             OpenXmlWriterError.InvalidPackage,
             "The LOCAL workbook does not contain a sheet collection.");
         var sheet = sheets.Elements<Sheet>().FirstOrDefault(
@@ -541,7 +544,8 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
         }
         RemapImportedTableIds(localWorkbookPart, importedPart);
         var relationshipId = localWorkbookPart.GetIdOfPart(importedPart);
-        var sheets = localWorkbookPart.Workbook.Sheets ?? localWorkbookPart.Workbook.AppendChild(new Sheets());
+        var workbook = GetRequiredWorkbook(localWorkbookPart, "LOCAL");
+        var sheets = workbook.Sheets ?? workbook.AppendChild(new Sheets());
         var maximumSheetId = sheets.Elements<Sheet>()
             .Select(static sheet => sheet.SheetId?.Value ?? 0U)
             .DefaultIfEmpty(0U)
@@ -576,7 +580,8 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
         WorkbookPart workbookPart,
         CompiledOpenXmlMerge compiled)
     {
-        var result = workbookPart.Workbook.Sheets?
+        var workbook = GetRequiredWorkbook(workbookPart, "LOCAL");
+        var result = workbook.Sheets?
             .Elements<Sheet>()
             .Select(sheet => new WorksheetNameState(
                 sheet.Id?.Value ?? throw new OpenXmlWriterException(
@@ -704,22 +709,27 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
 
             foreach (var tablePart in worksheetPart.TableDefinitionParts)
             {
-                AddTableNames(tablePart.Table, existingNames, "LOCAL");
+                AddTableNames(GetRequiredTable(tablePart, "LOCAL"), existingNames, "LOCAL");
             }
         }
 
-        foreach (var definedName in localWorkbookPart.Workbook.DefinedNames?
+        var localWorkbook = GetRequiredWorkbook(localWorkbookPart, "LOCAL");
+        foreach (var definedName in localWorkbook.DefinedNames?
             .Elements<DefinedName>() ?? [])
         {
-            if (!string.IsNullOrWhiteSpace(definedName.Name?.Value))
+            var name = definedName.Name?.Value;
+            if (!string.IsNullOrWhiteSpace(name))
             {
-                existingNames.Add(definedName.Name!.Value!);
+                existingNames.Add(name);
             }
         }
 
         foreach (var tablePart in remoteWorksheetPart.TableDefinitionParts)
         {
-            AddTableNames(tablePart.Table, existingNames, "REMOTE import");
+            AddTableNames(
+                GetRequiredTable(tablePart, "REMOTE import"),
+                existingNames,
+                "REMOTE import");
         }
     }
 
@@ -767,14 +777,16 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
         string source)
     {
         var tableNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!string.IsNullOrWhiteSpace(table.Name?.Value))
+        var tableName = table.Name?.Value;
+        if (!string.IsNullOrWhiteSpace(tableName))
         {
-            tableNames.Add(table.Name!.Value!);
+            tableNames.Add(tableName);
         }
 
-        if (!string.IsNullOrWhiteSpace(table.DisplayName?.Value))
+        var displayName = table.DisplayName?.Value;
+        if (!string.IsNullOrWhiteSpace(displayName))
         {
-            tableNames.Add(table.DisplayName!.Value!);
+            tableNames.Add(displayName);
         }
 
         if (tableNames.Count == 0)
@@ -802,13 +814,14 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
         var usedIds = localWorkbookPart.WorksheetParts
             .Where(worksheetPart => !ReferenceEquals(worksheetPart, importedWorksheetPart))
             .SelectMany(static worksheetPart => worksheetPart.TableDefinitionParts)
-            .Select(static tablePart => tablePart.Table.Id?.Value ?? 0U)
+            .Select(static tablePart => GetRequiredTable(tablePart, "LOCAL").Id?.Value ?? 0U)
             .Where(static id => id != 0U)
             .ToHashSet();
         var nextId = usedIds.DefaultIfEmpty(0U).Max();
         foreach (var tablePart in importedWorksheetPart.TableDefinitionParts)
         {
-            var requestedId = tablePart.Table.Id?.Value ?? 0U;
+            var table = GetRequiredTable(tablePart, "REMOTE import");
+            var requestedId = table.Id?.Value ?? 0U;
             if (requestedId == 0U || !usedIds.Add(requestedId))
             {
                 do
@@ -824,8 +837,8 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
                 }
                 while (!usedIds.Add(nextId));
 
-                tablePart.Table.Id = nextId;
-                tablePart.Table.Save();
+                table.Id = nextId;
+                table.Save();
             }
             else
             {
@@ -833,6 +846,16 @@ public sealed class OpenXmlWorkbookWriter : IOpenXmlWorkbookWriter
             }
         }
     }
+
+    private static Workbook GetRequiredWorkbook(WorkbookPart workbookPart, string source) =>
+        workbookPart.Workbook ?? throw new OpenXmlWriterException(
+            OpenXmlWriterError.InvalidPackage,
+            $"The {source} workbook part does not contain a workbook root element.");
+
+    private static Table GetRequiredTable(TableDefinitionPart tablePart, string source) =>
+        tablePart.Table ?? throw new OpenXmlWriterException(
+            OpenXmlWriterError.InvalidPackage,
+            $"A {source} table definition part does not contain a table root element.");
 
     private sealed record WorksheetNameState(string RelationshipId, string Name);
 

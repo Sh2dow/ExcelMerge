@@ -135,7 +135,7 @@ public sealed class WorkspaceMaintenanceTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() =>
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
             WorkspaceMaintenance.CleanupStaleAsync(
                 options,
                 minimumAge: TimeSpan.Zero,

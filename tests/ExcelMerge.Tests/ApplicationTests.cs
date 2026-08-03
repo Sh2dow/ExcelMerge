@@ -48,9 +48,9 @@ public sealed class ApplicationTests
         await File.WriteAllTextAsync(xlsPath, "legacy");
         await using var application = CreateApplication(temporaryDirectory);
 
-        var mixed = await Assert.ThrowsExceptionAsync<ExcelMergeApplicationException>(() =>
+        var mixed = await Assert.ThrowsExactlyAsync<ExcelMergeApplicationException>(() =>
             application.OpenCompareAsync(new CompareRequest(csvPath, xlsxPath)).AsTask());
-        var legacy = await Assert.ThrowsExceptionAsync<ExcelMergeApplicationException>(() =>
+        var legacy = await Assert.ThrowsExactlyAsync<ExcelMergeApplicationException>(() =>
             application.OpenCompareAsync(new CompareRequest(xlsPath, xlsPath)).AsTask());
 
         Assert.AreEqual(ApplicationError.MixedFormats, mixed.Error);
@@ -96,7 +96,7 @@ public sealed class ApplicationTests
             new MergeRequest(basePath, localPath, remotePath));
         var conflict = session.Conflicts.Single();
 
-        var unresolved = await Assert.ThrowsExceptionAsync<ExcelMergeApplicationException>(() =>
+        var unresolved = await Assert.ThrowsExactlyAsync<ExcelMergeApplicationException>(() =>
             session.SaveAsync(new SaveRequest(resultPath)).AsTask());
         session.ResolveCell(conflict.Id, ResolutionKind.Remote);
         await session.SaveAsync(new SaveRequest(resultPath));
@@ -104,7 +104,7 @@ public sealed class ApplicationTests
         Assert.AreEqual(ApplicationError.UnresolvedConflicts, unresolved.Error);
         Assert.IsFalse(session.HasUnresolvedConflicts);
         Assert.AreEqual("REMOTE\r\n", await File.ReadAllTextAsync(resultPath));
-        Assert.ThrowsException<ExcelMergeApplicationException>(() =>
+        Assert.ThrowsExactly<ExcelMergeApplicationException>(() =>
             session.ResolveRow(conflict.Id, ResolutionKind.Local));
     }
 
@@ -132,6 +132,38 @@ public sealed class ApplicationTests
     }
 
     [TestMethod]
+    public async Task Merge_session_both_override_duplicates_a_cell_conflict_row()
+    {
+        using var temporaryDirectory = new TestDirectory();
+        var basePath = temporaryDirectory.GetPath("base.csv");
+        var localPath = temporaryDirectory.GetPath("local.csv");
+        var remotePath = temporaryDirectory.GetPath("remote.csv");
+        var resultPath = temporaryDirectory.GetPath("result.csv");
+        await File.WriteAllTextAsync(basePath, "base-1,base-2");
+        await File.WriteAllTextAsync(localPath, "LOCAL-1,LOCAL-2");
+        await File.WriteAllTextAsync(remotePath, "REMOTE-1,REMOTE-2");
+        await using var application = CreateApplication(temporaryDirectory);
+        await using var session = await application.OpenMergeAsync(
+            new MergeRequest(basePath, localPath, remotePath));
+        Assert.AreEqual(2, session.Conflicts.Count);
+        Assert.IsTrue(session.Conflicts.All(static item => item.Kind == ConflictKind.CellValue));
+        var conflict = session.Conflicts[0];
+
+        session.SetRowOverride(new RowMergeOverride(
+            conflict.Location.SheetId,
+            conflict.Location.BaseRowIndex,
+            conflict.Location.LocalRowIndex,
+            conflict.Location.RemoteRowIndex,
+            ResolutionKind.Both));
+        await session.SaveAsync(new SaveRequest(resultPath));
+
+        Assert.IsFalse(session.HasUnresolvedConflicts);
+        Assert.AreEqual(
+            "LOCAL-1,LOCAL-2\r\nREMOTE-1,REMOTE-2\r\n",
+            await File.ReadAllTextAsync(resultPath));
+    }
+
+    [TestMethod]
     public async Task Merge_session_rejects_changed_delimited_source_before_save()
     {
         using var temporaryDirectory = new TestDirectory();
@@ -147,7 +179,7 @@ public sealed class ApplicationTests
             new MergeRequest(basePath, localPath, remotePath));
         await File.AppendAllTextAsync(remotePath, " changed");
 
-        var exception = await Assert.ThrowsExceptionAsync<ExcelMergeApplicationException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<ExcelMergeApplicationException>(() =>
             session.SaveAsync(new SaveRequest(resultPath)).AsTask());
 
         Assert.AreEqual(ApplicationError.InvalidRequest, exception.Error);
@@ -194,7 +226,7 @@ public sealed class ApplicationTests
 
         Assert.IsTrue(session.IsDisposed);
         Assert.AreEqual(0, WorkspaceDirectories(temporaryDirectory).Length);
-        await Assert.ThrowsExceptionAsync<ObjectDisposedException>(() =>
+        await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() =>
             application.OpenCompareAsync(new CompareRequest(localPath, remotePath)).AsTask());
     }
 

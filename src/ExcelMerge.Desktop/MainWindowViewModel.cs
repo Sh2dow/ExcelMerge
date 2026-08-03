@@ -353,7 +353,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public bool CanResolveSelected => _mergeSession is not null && SelectedConflict is not null && !IsBusy;
 
-    public bool CanUseBoth => CanResolveSelected && SelectedConflict!.IsRowConflict;
+    public bool CanUseBoth => CanResolveSelected && SelectedConflict!.SupportsBoth;
 
     public bool CanUseCustom =>
         CanResolveSelected && !SelectedConflict!.IsRowConflict && CustomValue.Length != 0;
@@ -371,9 +371,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             }
 
             var plan = _mergeSession.BuildPlan();
-            var unresolved = plan.CellResolutions.ToArray().Count(static item => !item.IsResolved) +
-                plan.RowResolutions.ToArray().Count(static item => !item.IsResolved);
-            var total = plan.CellResolutions.Length + plan.RowResolutions.Length;
+            var resolutions = BuildEffectiveResolutions(plan);
+            var unresolved = resolutions.Values.Count(static kind => kind == ResolutionKind.Unresolved);
+            var total = plan.Conflicts.Length;
             return $"{unresolved} {LocalizationService.Get("Unresolved")} / " +
                 $"{total - unresolved} {LocalizationService.Get("Resolved")}";
         }
@@ -678,16 +678,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
         else if (SelectedSheet.Merge is not null)
         {
-            var resolved = ConflictsForSheet(SelectedSheet.Merge)
-                .Where(static item => item.IsResolved)
-                .Select(static item => item.Conflict.Id)
-                .ToHashSet();
-            foreach (var item in ConflictsForSheet(SelectedSheet.Merge))
+            var resolutions = _mergeSession is null
+                ? new Dictionary<long, ResolutionKind>()
+                : BuildEffectiveResolutions(_mergeSession.BuildPlan());
+            foreach (var item in ConflictsForSheet(SelectedSheet.Merge, resolutions))
             {
                 Conflicts.Add(item);
             }
 
-            GridDocument = GridDocument.FromMerge(SelectedSheet.Merge, resolved, HideUnchanged);
+            GridDocument = GridDocument.FromMerge(SelectedSheet.Merge, resolutions, HideUnchanged);
             SelectedConflict = Conflicts.FirstOrDefault(static conflict => !conflict.IsResolved) ??
                 Conflicts.FirstOrDefault();
         }
@@ -696,20 +695,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(CanSave));
     }
 
-    private IEnumerable<ConflictItemViewModel> ConflictsForSheet(MergeSheetResult sheet)
+    private static IEnumerable<ConflictItemViewModel> ConflictsForSheet(
+        MergeSheetResult sheet,
+        IReadOnlyDictionary<long, ResolutionKind> resolutions)
     {
-        var plan = _mergeSession?.BuildPlan();
-        var cellResolutions = plan?.CellResolutions.ToArray()
-            .ToDictionary(static resolution => resolution.ConflictId) ?? [];
-        var rowResolutions = plan?.RowResolutions.ToArray()
-            .ToDictionary(static resolution => resolution.ConflictId) ?? [];
         foreach (var conflict in sheet.Merge.Conflicts.ToArray())
         {
-            var kind = cellResolutions.TryGetValue(conflict.Id, out var cell)
-                ? cell.Kind
-                : rowResolutions.TryGetValue(conflict.Id, out var row)
-                    ? row.Kind
-                    : ResolutionKind.Unresolved;
+            var kind = resolutions.TryGetValue(conflict.Id, out var resolution)
+                ? resolution
+                : ResolutionKind.Unresolved;
             yield return new ConflictItemViewModel(conflict, kind);
         }
     }
@@ -723,11 +717,32 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
         try
         {
-            if (SelectedConflict.IsRowConflict)
-                _mergeSession.ResolveRow(SelectedConflict.Conflict.Id, kind);
+            var conflict = SelectedConflict.Conflict;
+            if (kind == ResolutionKind.Both)
+            {
+                if (!SelectedConflict.SupportsBoth)
+                {
+                    return;
+                }
+
+                _mergeSession.SetRowOverride(new RowMergeOverride(
+                    conflict.Location.SheetId,
+                    conflict.Location.BaseRowIndex,
+                    conflict.Location.LocalRowIndex,
+                    conflict.Location.RemoteRowIndex,
+                    ResolutionKind.Both));
+            }
+            else if (SelectedConflict.IsRowConflict)
+            {
+                _mergeSession.ResolveRow(conflict.Id, kind);
+                RemoveRowOverride(_mergeSession, conflict.Location);
+            }
             else
-                _mergeSession.ResolveCell(SelectedConflict.Conflict.Id, kind);
-            SelectedConflict.Resolution = kind;
+            {
+                _mergeSession.ResolveCell(conflict.Id, kind);
+                RemoveRowOverride(_mergeSession, conflict.Location);
+            }
+
             RefreshAfterResolution();
         }
         catch (Exception exception)
@@ -748,23 +763,70 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             SelectedConflict.Conflict.Id,
             ResolutionKind.Custom,
             CellValue.FromText(CustomValue, CustomValue));
-        SelectedConflict.Resolution = ResolutionKind.Custom;
+        RemoveRowOverride(_mergeSession, SelectedConflict.Conflict.Location);
         RefreshAfterResolution();
     }
 
     private void RefreshAfterResolution()
     {
-        if (SelectedSheet?.Merge is { } merge)
+        if (_mergeSession is not null)
         {
-            var resolved = Conflicts.Where(static item => item.IsResolved)
-                .Select(static item => item.Conflict.Id)
-                .ToHashSet();
-            GridDocument = GridDocument.FromMerge(merge, resolved, HideUnchanged);
+            var resolutions = BuildEffectiveResolutions(_mergeSession.BuildPlan());
+            foreach (var conflict in Conflicts)
+            {
+                conflict.Resolution = resolutions.GetValueOrDefault(
+                    conflict.Conflict.Id,
+                    ResolutionKind.Unresolved);
+            }
+
+            if (SelectedSheet?.Merge is { } merge)
+            {
+                GridDocument = GridDocument.FromMerge(merge, resolutions, HideUnchanged);
+            }
         }
 
         OnPropertyChanged(nameof(ConflictSummary));
         OnPropertyChanged(nameof(CanSave));
         RaiseResolutionCanExecute();
+    }
+
+    private static void RemoveRowOverride(MergeSession session, ConflictLocation location) =>
+        session.RemoveRowOverride(
+            location.SheetId,
+            location.BaseRowIndex,
+            location.LocalRowIndex,
+            location.RemoteRowIndex);
+
+    private static Dictionary<long, ResolutionKind> BuildEffectiveResolutions(MergePlan plan)
+    {
+        var resolutions = plan.CellResolutions.ToArray()
+            .ToDictionary(static item => item.ConflictId, static item => item.Kind);
+        foreach (var resolution in plan.RowResolutions.Span)
+        {
+            resolutions[resolution.ConflictId] = resolution.Kind;
+        }
+
+        var rowOverrides = plan.RowOverrides.ToArray().ToDictionary(
+            static item => (
+                item.SheetId,
+                item.BaseRowIndex,
+                item.LocalRowIndex,
+                item.RemoteRowIndex),
+            static item => item.Kind);
+        foreach (var conflict in plan.Conflicts.Span)
+        {
+            if (rowOverrides.TryGetValue((
+                    conflict.Location.SheetId,
+                    conflict.Location.BaseRowIndex,
+                    conflict.Location.LocalRowIndex,
+                    conflict.Location.RemoteRowIndex),
+                out var kind))
+            {
+                resolutions[conflict.Id] = kind;
+            }
+        }
+
+        return resolutions;
     }
 
     private async Task SearchAsync()
@@ -1011,11 +1073,15 @@ public sealed class ConflictItemViewModel : ObservableObject
 
     public bool IsRowConflict => Conflict.Kind is not (ConflictKind.CellValue or ConflictKind.CellDeleteEdit);
 
+    public bool SupportsBoth =>
+        Conflict.Location.LocalRowIndex.HasValue && Conflict.Location.RemoteRowIndex.HasValue;
+
     public bool Matches(GridRowDescriptor row, int columnIndex) =>
         Conflict.Location.ColumnIndex == columnIndex &&
-        Conflict.Location.BaseRowIndex == row.BaseRowIndex &&
-        Conflict.Location.LocalRowIndex == row.LocalRowIndex &&
-        Conflict.Location.RemoteRowIndex == row.RemoteRowIndex;
+        row.MatchesLocation(
+            Conflict.Location.BaseRowIndex,
+            Conflict.Location.LocalRowIndex,
+            Conflict.Location.RemoteRowIndex);
 
     public string BaseValue => FormatValue(Conflict.BaseValue);
 

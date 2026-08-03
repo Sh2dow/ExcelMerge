@@ -90,7 +90,7 @@ public sealed class StorageTests
             offset.ByteLength,
             offset.CellCount,
             offset.SourceRowIndex + 1);
-        await Assert.ThrowsExceptionAsync<ArgumentException>(
+        await Assert.ThrowsExactlyAsync<ArgumentException>(
             () => store.ReadRowAsync(mismatchedOffset).AsTask());
     }
 
@@ -158,7 +158,7 @@ public sealed class StorageTests
                 new CellRecord(new CellAddress(1, 0), TestData.Text("wrong row")),
             });
 
-        await Assert.ThrowsExceptionAsync<ArgumentException>(
+        await Assert.ThrowsExactlyAsync<ArgumentException>(
             () => store.AppendRowAsync(invalidRow).AsTask());
 
         Assert.AreEqual(0L, store.RowCount);
@@ -178,13 +178,13 @@ public sealed class StorageTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(
             () => store.AppendRowAsync(TestData.Row(0), cancellation.Token).AsTask());
 
         await store.DisposeAsync();
-        await Assert.ThrowsExceptionAsync<ObjectDisposedException>(
+        await Assert.ThrowsExactlyAsync<ObjectDisposedException>(
             () => store.AppendRowAsync(TestData.Row(0)).AsTask());
-        Assert.ThrowsException<ObjectDisposedException>(() => store.ClearCache());
+        Assert.ThrowsExactly<ObjectDisposedException>(() => store.ClearCache());
     }
 
     [TestMethod]
@@ -222,11 +222,11 @@ public sealed class StorageTests
             Assert.AreEqual(values[index], store.Read(index));
         }
         Assert.IsTrue(store.CachedTextCount <= 2);
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => store.Read(values.Length));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => store.Read(values.Length));
 
         store.Dispose();
         Assert.IsFalse(Directory.Exists(storePath));
-        Assert.ThrowsException<ObjectDisposedException>(() => store.Read(0));
+        Assert.ThrowsExactly<ObjectDisposedException>(() => store.Read(0));
     }
 
     [TestMethod]
@@ -247,6 +247,6 @@ public sealed class StorageTests
         }
 
         Assert.IsFalse(Directory.Exists(workspacePath));
-        Assert.ThrowsException<ObjectDisposedException>(() => textStore.Read(0));
+        Assert.ThrowsExactly<ObjectDisposedException>(() => textStore.Read(0));
     }
 }

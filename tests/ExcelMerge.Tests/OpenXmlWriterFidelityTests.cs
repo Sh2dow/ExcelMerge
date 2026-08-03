@@ -52,15 +52,42 @@ public sealed class OpenXmlWriterFidelityTests
         await WriteAsync(plan, basePath, localPath, remotePath, destinationPath);
 
         using var document = SpreadsheetDocument.Open(destinationPath, isEditable: false);
-        var workbookPart = document.WorkbookPart!;
-        var sheets = workbookPart.Workbook.Sheets!.Elements<Sheet>().ToArray();
-        var dataPart = (WorksheetPart)workbookPart.GetPartById(sheets[0].Id!);
-        var summaryPart = (WorksheetPart)workbookPart.GetPartById(sheets[1].Id!);
-        Assert.AreEqual("A1:A3", dataPart.Worksheet.SheetDimension?.Reference?.Value);
-        Assert.AreEqual("Data!A3", summaryPart.Worksheet.Descendants<CellFormula>().Single().Text);
+        var workbookPart = document.WorkbookPart
+            ?? throw new AssertFailedException("The result must contain a workbook part.");
+        var workbook = workbookPart.Workbook
+            ?? throw new AssertFailedException("The result must contain a workbook.");
+        var sheetContainer = workbook.Sheets
+            ?? throw new AssertFailedException("The result workbook must contain sheets.");
+        var sheets = sheetContainer.Elements<Sheet>().ToArray();
+        Assert.AreEqual(2, sheets.Length);
+        var dataRelationshipId = sheets[0].Id?.Value
+            ?? throw new AssertFailedException("The data sheet must have a relationship ID.");
+        var summaryRelationshipId = sheets[1].Id?.Value
+            ?? throw new AssertFailedException("The summary sheet must have a relationship ID.");
+        var dataPart = workbookPart.GetPartById(dataRelationshipId) as WorksheetPart
+            ?? throw new AssertFailedException("The data sheet relationship must target a worksheet part.");
+        var summaryPart = workbookPart.GetPartById(summaryRelationshipId) as WorksheetPart
+            ?? throw new AssertFailedException("The summary sheet relationship must target a worksheet part.");
+        var dataWorksheet = dataPart.Worksheet
+            ?? throw new AssertFailedException("The data worksheet part must contain a worksheet.");
+        var summaryWorksheet = summaryPart.Worksheet
+            ?? throw new AssertFailedException("The summary worksheet part must contain a worksheet.");
+        var dimensionReference = dataWorksheet.SheetDimension?.Reference?.Value
+            ?? throw new AssertFailedException("The data worksheet must have a dimension reference.");
+        Assert.AreEqual("A1:A3", dimensionReference);
+        Assert.AreEqual("Data!A3", summaryWorksheet.Descendants<CellFormula>().Single().Text);
 
-        var names = workbookPart.Workbook.DefinedNames!.Elements<DefinedName>()
-            .ToDictionary(static name => name.Name!.Value!, StringComparer.Ordinal);
+        var definedNames = workbook.DefinedNames
+            ?? throw new AssertFailedException("The result workbook must contain defined names.");
+        var names = new Dictionary<string, DefinedName>(StringComparer.Ordinal);
+        foreach (var definedName in definedNames.Elements<DefinedName>())
+        {
+            var name = definedName.Name?.Value
+                ?? throw new AssertFailedException("Every defined name must have a name attribute.");
+            Assert.IsTrue(names.TryAdd(name, definedName), $"Defined name '{name}' must be unique.");
+        }
+
+        Assert.AreEqual(5, names.Count);
         Assert.AreEqual("Data!$A$3:$A$3", names["DataRange"].Text);
         Assert.AreEqual("Data!$A$1:$A$3", names["_xlnm.Print_Area"].Text);
         Assert.AreEqual("Data!$1:$3", names["_xlnm.Print_Titles"].Text);
@@ -116,18 +143,43 @@ public sealed class OpenXmlWriterFidelityTests
         await WriteAsync(plan, basePath, localPath, remotePath, destinationPath);
 
         using var document = SpreadsheetDocument.Open(destinationPath, isEditable: false);
-        var workbookPart = document.WorkbookPart!;
+        var workbookPart = document.WorkbookPart
+            ?? throw new AssertFailedException("The result must contain a workbook part.");
+        var workbook = workbookPart.Workbook
+            ?? throw new AssertFailedException("The result must contain a workbook.");
+        var sheetContainer = workbook.Sheets
+            ?? throw new AssertFailedException("The result workbook must contain sheets.");
+        var sheetNames = new List<string>();
+        foreach (var sheet in sheetContainer.Elements<Sheet>())
+        {
+            var sheetName = sheet.Name?.Value
+                ?? throw new AssertFailedException("Every result sheet must have a name attribute.");
+            sheetNames.Add(sheetName);
+        }
+
         CollectionAssert.AreEqual(
             new[] { "REMOTE Name", "Summary" },
-            workbookPart.Workbook.Sheets!.Elements<Sheet>()
-                .Select(static sheet => sheet.Name!.Value!)
-                .ToArray());
-        var summary = workbookPart.WorksheetParts.Single(part =>
-            part.Worksheet.Descendants<CellFormula>().Any());
-        Assert.AreEqual("'REMOTE Name'!A1", summary.Worksheet.Descendants<CellFormula>().Single().Text);
+            sheetNames);
+        var formulaWorksheets = new List<Worksheet>();
+        foreach (var worksheetPart in workbookPart.WorksheetParts)
+        {
+            var worksheet = worksheetPart.Worksheet
+                ?? throw new AssertFailedException("Every worksheet part must contain a worksheet.");
+            if (worksheet.Descendants<CellFormula>().Any())
+            {
+                formulaWorksheets.Add(worksheet);
+            }
+        }
+
+        var summaryWorksheet = formulaWorksheets.Single();
+        Assert.AreEqual(
+            "'REMOTE Name'!A1",
+            summaryWorksheet.Descendants<CellFormula>().Single().Text);
+        var definedNames = workbook.DefinedNames
+            ?? throw new AssertFailedException("The result workbook must contain defined names.");
         Assert.AreEqual(
             "'REMOTE Name'!$A$1",
-            workbookPart.Workbook.DefinedNames!.Elements<DefinedName>().Single().Text);
+            definedNames.Elements<DefinedName>().Single().Text);
     }
 
     [TestMethod]
@@ -155,18 +207,44 @@ public sealed class OpenXmlWriterFidelityTests
         await WriteAsync(plan, basePath, localPath, remotePath, destinationPath);
 
         using var document = SpreadsheetDocument.Open(destinationPath, isEditable: false);
-        var workbookPart = document.WorkbookPart!;
-        var tables = workbookPart.WorksheetParts
-            .SelectMany(static part => part.TableDefinitionParts)
-            .Select(static part => part.Table)
-            .ToArray();
-        Assert.AreEqual(2, tables.Length);
-        Assert.AreEqual(2, tables.Select(static table => table.Id!.Value).Distinct().Count());
+        var workbookPart = document.WorkbookPart
+            ?? throw new AssertFailedException("The result must contain a workbook part.");
+        var workbook = workbookPart.Workbook
+            ?? throw new AssertFailedException("The result must contain a workbook.");
+        var tables = new List<Table>();
+        foreach (var worksheetPart in workbookPart.WorksheetParts)
+        {
+            foreach (var tablePart in worksheetPart.TableDefinitionParts)
+            {
+                var table = tablePart.Table
+                    ?? throw new AssertFailedException("Every table definition part must contain a table.");
+                tables.Add(table);
+            }
+        }
+
+        Assert.AreEqual(2, tables.Count);
+        var tableIds = new List<uint>(tables.Count);
+        var tableNames = new List<string>(tables.Count);
+        foreach (var table in tables)
+        {
+            var tableId = table.Id?.Value
+                ?? throw new AssertFailedException("Every imported table must have an ID attribute.");
+            var tableName = table.Name?.Value
+                ?? throw new AssertFailedException("Every imported table must have a name attribute.");
+            tableIds.Add(tableId);
+            tableNames.Add(tableName);
+        }
+
+        Assert.AreEqual(2, tableIds.Distinct().Count());
         CollectionAssert.AreEquivalent(
             new[] { "LocalTable", "RemoteTable" },
-            tables.Select(static table => table.Name!.Value!).ToArray());
-        var importedName = workbookPart.Workbook.DefinedNames!.Elements<DefinedName>().Single();
-        Assert.AreEqual(1U, importedName.LocalSheetId?.Value);
+            tableNames);
+        var definedNames = workbook.DefinedNames
+            ?? throw new AssertFailedException("The result workbook must contain defined names.");
+        var importedName = definedNames.Elements<DefinedName>().Single();
+        var localSheetId = importedName.LocalSheetId?.Value
+            ?? throw new AssertFailedException("The imported defined name must have a local sheet ID.");
+        Assert.AreEqual(1U, localSheetId);
         Assert.AreEqual("Data!$A$1:$A$2", importedName.Text);
     }
 
@@ -198,7 +276,7 @@ public sealed class OpenXmlWriterFidelityTests
             remotePath,
             destinationPath);
 
-        var exception = await Assert.ThrowsExceptionAsync<OpenXmlWriterException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<OpenXmlWriterException>(() =>
             new OpenXmlWorkbookWriter().WriteAsync(
                 request,
                 new OpenXmlWriterOptions { MinimumFreeSpaceReserveBytes = 0 }).AsTask());
@@ -226,7 +304,7 @@ public sealed class OpenXmlWriterFidelityTests
             remotePath,
             destinationPath);
 
-        var exception = await Assert.ThrowsExceptionAsync<OpenXmlWriterException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<OpenXmlWriterException>(() =>
             new OpenXmlWorkbookWriter().WriteAsync(
                 request,
                 new OpenXmlWriterOptions { MinimumFreeSpaceReserveBytes = 0 }).AsTask());
@@ -269,7 +347,7 @@ public sealed class OpenXmlWriterFidelityTests
             remotePath,
             destinationPath);
 
-        var exception = await Assert.ThrowsExceptionAsync<OpenXmlWriterException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<OpenXmlWriterException>(() =>
             new OpenXmlWorkbookWriter().WriteAsync(
                 request,
                 new OpenXmlWriterOptions { MinimumFreeSpaceReserveBytes = 0 }).AsTask());
@@ -301,7 +379,7 @@ public sealed class OpenXmlWriterFidelityTests
             await OpenXmlWorkbookSource.CaptureAsync(remotePath),
             destinationPath);
 
-        var exception = await Assert.ThrowsExceptionAsync<OpenXmlWriterException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<OpenXmlWriterException>(() =>
             new OpenXmlWorkbookWriter().WriteAsync(
                 request,
                 new OpenXmlWriterOptions { MinimumFreeSpaceReserveBytes = 0 }).AsTask());
@@ -341,9 +419,17 @@ public sealed class OpenXmlWriterFidelityTests
         await WriteAsync(plan, basePath, localPath, remotePath, destinationPath);
 
         using var document = SpreadsheetDocument.Open(destinationPath, isEditable: false);
-        var formula = document.WorkbookPart!.WorksheetParts
-            .SelectMany(static part => part.Worksheet.Descendants<CellFormula>())
-            .Single();
+        var workbookPart = document.WorkbookPart
+            ?? throw new AssertFailedException("The result must contain a workbook part.");
+        var formulas = new List<CellFormula>();
+        foreach (var worksheetPart in workbookPart.WorksheetParts)
+        {
+            var worksheet = worksheetPart.Worksheet
+                ?? throw new AssertFailedException("Every worksheet part must contain a worksheet.");
+            formulas.AddRange(worksheet.Descendants<CellFormula>());
+        }
+
+        var formula = formulas.Single();
         Assert.AreEqual("SUM(Data!3:3)", formula.Text);
     }
 
@@ -362,8 +448,13 @@ public sealed class OpenXmlWriterFidelityTests
         await WriteAsync(plan, basePath, localPath, remotePath, destinationPath);
 
         using var document = SpreadsheetDocument.Open(destinationPath, isEditable: false);
-        var worksheet = document.WorkbookPart!.WorksheetParts.Single().Worksheet;
-        Assert.AreEqual("A1:D1", worksheet.SheetDimension?.Reference?.Value);
+        var workbookPart = document.WorkbookPart
+            ?? throw new AssertFailedException("The result must contain a workbook part.");
+        var worksheet = workbookPart.WorksheetParts.Single().Worksheet
+            ?? throw new AssertFailedException("The result worksheet part must contain a worksheet.");
+        var dimensionReference = worksheet.SheetDimension?.Reference?.Value
+            ?? throw new AssertFailedException("The result worksheet must have a dimension reference.");
+        Assert.AreEqual("A1:D1", dimensionReference);
         Assert.AreEqual(
             "remote",
             worksheet.Descendants<Cell>()
@@ -396,7 +487,7 @@ public sealed class OpenXmlWriterFidelityTests
             remotePath,
             destinationPath);
 
-        var exception = await Assert.ThrowsExceptionAsync<OpenXmlWriterException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<OpenXmlWriterException>(() =>
             new OpenXmlWorkbookWriter().WriteAsync(
                 request,
                 new OpenXmlWriterOptions { MinimumFreeSpaceReserveBytes = 0 }).AsTask());
@@ -421,8 +512,9 @@ public sealed class OpenXmlWriterFidelityTests
         var path = directory.GetPath(fileName);
         using var document = SpreadsheetDocument.Create(path, SpreadsheetDocumentType.Workbook);
         var workbookPart = document.AddWorkbookPart();
-        workbookPart.Workbook = new Workbook();
-        var sheets = workbookPart.Workbook.AppendChild(new Sheets());
+        var workbook = new Workbook();
+        workbookPart.Workbook = workbook;
+        var sheets = workbook.AppendChild(new Sheets());
         var dataPart = AddDataSheet(
             workbookPart,
             sheets,
@@ -449,11 +541,13 @@ public sealed class OpenXmlWriterFidelityTests
                 container.Append(name);
             }
 
-            workbookPart.Workbook.DefinedNames = container;
+            workbook.DefinedNames = container;
         }
 
-        dataPart.Worksheet.Save();
-        workbookPart.Workbook.Save();
+        var dataWorksheet = dataPart.Worksheet
+            ?? throw new AssertFailedException("The data worksheet part must contain a worksheet.");
+        dataWorksheet.Save();
+        workbook.Save();
         return path;
     }
 
@@ -534,14 +628,21 @@ public sealed class OpenXmlWriterFidelityTests
     private static void AddTextCell(string path, string reference, string value)
     {
         using var document = SpreadsheetDocument.Open(path, isEditable: true);
-        var worksheet = document.WorkbookPart!.WorksheetParts.Single().Worksheet;
-        var row = worksheet.GetFirstChild<SheetData>()!.Elements<Row>().Single();
+        var workbookPart = document.WorkbookPart
+            ?? throw new AssertFailedException("The workbook must contain a workbook part.");
+        var worksheet = workbookPart.WorksheetParts.Single().Worksheet
+            ?? throw new AssertFailedException("The worksheet part must contain a worksheet.");
+        var sheetData = worksheet.GetFirstChild<SheetData>()
+            ?? throw new AssertFailedException("The worksheet must contain sheet data.");
+        var row = sheetData.Elements<Row>().Single();
         row.Append(new Cell(new InlineString(new Text(value)))
         {
             CellReference = reference,
             DataType = CellValues.InlineString,
         });
-        worksheet.SheetDimension!.Reference = $"A1:{reference}";
+        var sheetDimension = worksheet.SheetDimension
+            ?? throw new AssertFailedException("The worksheet must contain a sheet dimension.");
+        sheetDimension.Reference = $"A1:{reference}";
         worksheet.Save();
     }
 
@@ -576,7 +677,9 @@ public sealed class OpenXmlWriterFidelityTests
             TotalsRowShown = false,
         };
         tablePart.Table.Save();
-        worksheetPart.Worksheet.Append(new TableParts(
+        var worksheet = worksheetPart.Worksheet
+            ?? throw new AssertFailedException("The worksheet part must contain a worksheet.");
+        worksheet.Append(new TableParts(
             new TablePart { Id = worksheetPart.GetIdOfPart(tablePart) })
         {
             Count = 1,

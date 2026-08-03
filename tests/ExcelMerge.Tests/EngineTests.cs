@@ -221,7 +221,7 @@ public sealed class EngineTests
         Assert.AreEqual(2, plan.SheetChanges.Length);
         Assert.AreEqual(1, plan.Conflicts.Length);
         Assert.IsTrue(plan.HasUnresolvedResolutions);
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             MergePlanFactory.Create(workbook, workbook, workbook, [result, result]));
     }
 

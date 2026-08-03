@@ -12,20 +12,119 @@
         DragDrop.AllowDrop="True"
         DragDrop.DragOver="WindowDragOver"
         DragDrop.Drop="WindowDrop">
+  <Window.Styles>
+    <Style Selector="Button.topbar">
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="Padding" Value="12,5" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="Background" Value="#30363C" />
+      <Setter Property="BorderBrush" Value="#505A63" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="#F2F5F7" />
+    </Style>
+    <Style Selector="Button.topbar:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#3C444C" />
+      <Setter Property="BorderBrush" Value="#707B85" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.topbar:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#1C2126" />
+      <Setter Property="BorderBrush" Value="#66717B" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.topbar:disabled /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#292F34" />
+      <Setter Property="BorderBrush" Value="#394047" />
+      <Setter Property="Foreground" Value="#8E99A3" />
+    </Style>
+
+    <Style Selector="Button.topbar.topbarPrimary">
+      <Setter Property="Background" Value="#1769AA" />
+      <Setter Property="BorderBrush" Value="#2B7DBA" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.topbar.topbarPrimary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#217CBD" />
+      <Setter Property="BorderBrush" Value="#4A96CC" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.topbar.topbarPrimary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#0F568F" />
+      <Setter Property="BorderBrush" Value="#2775AD" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="Button.topbar.topbarPrimary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#304B60" />
+      <Setter Property="BorderBrush" Value="#405E74" />
+      <Setter Property="Foreground" Value="#AEBEC9" />
+    </Style>
+
+    <Style Selector="ToggleButton.modeSwitch">
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="Padding" Value="13,5" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="Background" Value="#30363C" />
+      <Setter Property="BorderBrush" Value="#505A63" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="#E7EBEE" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="ToggleButton.modeSwitch:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#3C444C" />
+      <Setter Property="BorderBrush" Value="#707B85" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="ToggleButton.modeSwitch:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#1C2126" />
+      <Setter Property="BorderBrush" Value="#66717B" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="ToggleButton.modeSwitch:disabled /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#292F34" />
+      <Setter Property="BorderBrush" Value="#394047" />
+      <Setter Property="Foreground" Value="#8E99A3" />
+    </Style>
+    <Style Selector="ToggleButton.modeSwitch:checked /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#1769AA" />
+      <Setter Property="BorderBrush" Value="#3A87C1" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="ToggleButton.modeSwitch:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#217CBD" />
+      <Setter Property="BorderBrush" Value="#57A0D4" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="ToggleButton.modeSwitch:checked:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#0F568F" />
+      <Setter Property="BorderBrush" Value="#2775AD" />
+      <Setter Property="Foreground" Value="#FFFFFF" />
+    </Style>
+    <Style Selector="ToggleButton.modeSwitch:checked:disabled /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#304B60" />
+      <Setter Property="BorderBrush" Value="#405E74" />
+      <Setter Property="Foreground" Value="#AEBEC9" />
+    </Style>
+  </Window.Styles>
+
   <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
-    <Border Grid.Row="0" Background="#24282C" Padding="12,8">
+    <Border Grid.Row="0" Background="#24282C" BorderBrush="#111519"
+            BorderThickness="0,0,0,1" Padding="12,8">
       <Grid ColumnDefinitions="Auto,Auto,18,*,Auto,Auto,Auto" ColumnSpacing="7">
-        <ToggleButton x:Name="CompareModeButton" Content="{DynamicResource Compare}"
+        <ToggleButton x:Name="CompareModeButton" Classes="modeSwitch" Content="{DynamicResource Compare}"
                       IsChecked="{Binding IsCompareMode, Mode=OneWay}"
                       Click="SelectCompareMode" MinWidth="86" />
-        <ToggleButton x:Name="MergeModeButton" Grid.Column="1" Content="{DynamicResource Merge}"
+        <ToggleButton x:Name="MergeModeButton" Grid.Column="1" Classes="modeSwitch"
+                      Content="{DynamicResource Merge}"
                       IsChecked="{Binding IsMergeMode, Mode=OneWay}"
                       Click="SelectMergeMode" MinWidth="86" />
-        <TextBlock Grid.Column="3" Text="ExcelMerge" Foreground="White" FontSize="17"
+        <TextBlock Grid.Column="3" Text="ExcelMerge" Foreground="#F5F7F8" FontSize="17"
                    FontWeight="SemiBold" VerticalAlignment="Center" />
-        <Button Grid.Column="4" Content="{DynamicResource Diagnostics}" Click="OpenDiagnostics" />
-        <Button Grid.Column="5" Content="{DynamicResource Settings}" Click="OpenSettings" />
-        <Button Grid.Column="6" Classes="primary" Content="{DynamicResource SaveResult}"
+        <Button Grid.Column="4" Classes="topbar" Content="{DynamicResource Diagnostics}"
+                Click="OpenDiagnostics" />
+        <Button Grid.Column="5" Classes="topbar" Content="{DynamicResource Settings}"
+                Click="OpenSettings" />
+        <Button Grid.Column="6" Classes="topbar topbarPrimary" Content="{DynamicResource SaveResult}"
                 Click="SaveResult" IsEnabled="{Binding CanSave}" />
       </Grid>
     </Border>

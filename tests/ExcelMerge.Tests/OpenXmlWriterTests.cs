@@ -64,9 +64,17 @@ public sealed class OpenXmlWriterTests
             0,
             errors.Length,
             string.Join(Environment.NewLine, errors.Select(static error => error.Description)));
+        var workbookPart = document.WorkbookPart;
+        Assert.IsNotNull(workbookPart);
+        var stylesPart = workbookPart.WorkbookStylesPart;
+        Assert.IsNotNull(stylesPart);
+        var stylesheet = stylesPart.Stylesheet;
+        Assert.IsNotNull(stylesheet);
+        var fonts = stylesheet.Fonts;
+        Assert.IsNotNull(fonts);
         CollectionAssert.AreEqual(
             new[] { "sz", "color", "name", "family", "charset", "scheme" },
-            document.WorkbookPart!.WorkbookStylesPart!.Stylesheet.Fonts!
+            fonts
                 .Elements<Font>()
                 .Single()
                 .ChildElements
@@ -181,7 +189,7 @@ public sealed class OpenXmlWriterTests
             remotePath,
             destinationPath);
 
-        var exception = await Assert.ThrowsExceptionAsync<OpenXmlWriterException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<OpenXmlWriterException>(() =>
             new OpenXmlWorkbookWriter().WriteAsync(
                 request,
                 new OpenXmlWriterOptions { MinimumFreeSpaceReserveBytes = 0 }).AsTask());
@@ -267,7 +275,7 @@ public sealed class OpenXmlWriterTests
             destinationPath);
         File.SetLastWriteTimeUtc(remotePath, File.GetLastWriteTimeUtc(remotePath).AddMinutes(1));
 
-        var exception = await Assert.ThrowsExceptionAsync<OpenXmlWriterException>(() =>
+        var exception = await Assert.ThrowsExactlyAsync<OpenXmlWriterException>(() =>
             new OpenXmlWorkbookWriter().WriteAsync(
                 request,
                 new OpenXmlWriterOptions { MinimumFreeSpaceReserveBytes = 0 }).AsTask());
@@ -396,16 +404,33 @@ public sealed class OpenXmlWriterTests
 
         using (var document = SpreadsheetDocument.Open(destinationPath, isEditable: false))
         {
-            var workbookPart = document.WorkbookPart!;
-            var sheet = workbookPart.Workbook.Sheets!.Elements<Sheet>()
+            var workbookPart = document.WorkbookPart;
+            Assert.IsNotNull(workbookPart);
+            var workbook = workbookPart.Workbook;
+            Assert.IsNotNull(workbook);
+            var sheets = workbook.Sheets;
+            Assert.IsNotNull(sheets);
+            var sheet = sheets.Elements<Sheet>()
                 .Single(candidate => candidate.Name?.Value == "Data");
-            var worksheetPart = (WorksheetPart)workbookPart.GetPartById(sheet.Id!.Value!);
-            var cell = worksheetPart.Worksheet.Descendants<Cell>().Single();
-            var runs = cell.InlineString!.Elements<Run>().ToArray();
-            Assert.AreEqual(CellValues.InlineString, cell.DataType!.Value);
+            var relationshipId = sheet.Id?.Value;
+            Assert.IsNotNull(relationshipId);
+            var worksheetPart = (WorksheetPart)workbookPart.GetPartById(relationshipId);
+            var worksheet = worksheetPart.Worksheet;
+            Assert.IsNotNull(worksheet);
+            var cell = worksheet.Descendants<Cell>().Single();
+            var inlineString = cell.InlineString;
+            Assert.IsNotNull(inlineString);
+            var runs = inlineString.Elements<Run>().ToArray();
+            var dataType = cell.DataType;
+            Assert.IsNotNull(dataType);
+            Assert.AreEqual(CellValues.InlineString, dataType.Value);
             Assert.AreEqual(2, runs.Length);
             Assert.IsNotNull(runs[0].RunProperties?.GetFirstChild<Bold>());
-            Assert.AreEqual(SpaceProcessingModeValues.Preserve, runs[0].Text!.Space!.Value);
+            var firstRunText = runs[0].Text;
+            Assert.IsNotNull(firstRunText);
+            var space = firstRunText.Space;
+            Assert.IsNotNull(space);
+            Assert.AreEqual(SpaceProcessingModeValues.Preserve, space.Value);
         }
 
         var output = await reader.IndexAsync(destinationPath, workspace);
@@ -553,7 +578,10 @@ public sealed class OpenXmlWriterTests
             new OpenXmlWriterOptions { MinimumFreeSpaceReserveBytes = 0 });
 
         using var document = SpreadsheetDocument.Open(destinationPath, isEditable: false);
-        var worksheet = document.WorkbookPart!.WorksheetParts.Single().Worksheet;
+        var workbookPart = document.WorkbookPart;
+        Assert.IsNotNull(workbookPart);
+        var worksheet = workbookPart.WorksheetParts.Single().Worksheet;
+        Assert.IsNotNull(worksheet);
         Assert.AreEqual("A3:B3", worksheet.Descendants<MergeCell>().Single().Reference?.Value);
         Assert.AreEqual(
             "A3",

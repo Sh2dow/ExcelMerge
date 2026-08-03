@@ -47,11 +47,11 @@ public sealed class CliTests
     [TestMethod]
     public void Parser_rejects_missing_output_unknown_options_and_invalid_marker()
     {
-        Assert.ThrowsException<CliUsageException>(() =>
+        Assert.ThrowsExactly<CliUsageException>(() =>
             CliCommandLine.Parse(["merge", "base.csv", "local.csv", "remote.csv"]));
-        Assert.ThrowsException<CliUsageException>(() =>
+        Assert.ThrowsExactly<CliUsageException>(() =>
             CliCommandLine.Parse(["diff", "--unknown", "value", "a.csv", "b.csv"]));
-        Assert.ThrowsException<CliUsageException>(() =>
+        Assert.ThrowsExactly<CliUsageException>(() =>
             CliCommandLine.Parse(["merge-driver", "base", "ours", "theirs", "0", "data.csv"]));
     }
 

@@ -155,7 +155,9 @@ internal static class OpenXmlCoordinateTransformer
 
         foreach (var tablePart in worksheetPart.TableDefinitionParts)
         {
-            var table = tablePart.Table;
+            var table = tablePart.Table ?? throw new OpenXmlWriterException(
+                OpenXmlWriterError.InvalidPackage,
+                "A table definition part does not contain a table root element.");
             table.Reference = TransformReference(table.Reference?.Value, referenceRowMapper);
             if (table.AutoFilter is { } autoFilter)
             {
