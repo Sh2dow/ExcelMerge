@@ -1,5 +1,7 @@
 # ExcelMerge
 
+Project source: [https://github.com/ksgfk/ExcelMerge](https://github.com/ksgfk/ExcelMerge)
+
 ExcelMerge is a .NET desktop and command-line application for comparing and three-way merging spreadsheet files. It supports `.xlsx`, `.csv`, and `.tsv` inputs and uses disk-backed indexes plus a virtualized grid to keep workbook processing bounded.
 
 ## Features
@@ -13,6 +15,12 @@ ExcelMerge is a .NET desktop and command-line application for comparing and thre
 - Preserve the LOCAL `.xlsx` package and styles as the merge baseline.
 - Write results transactionally, validate generated `.xlsx` packages, and reject unsupported transformations before replacing the destination.
 - Use the CLI for automation or as a Git merge driver.
+
+## Documentation
+
+- [AI installation guide for packaged releases](docs/AI-INSTALL.md)
+- [AI/Agent Git merge-driver and conflict-resolution guide](docs/ai-git-merge-driver.md)
+- [中文用户指南](docs/user-guide.zh-CN.md)
 
 ## Requirements
 
@@ -29,6 +37,14 @@ The root solution uses the `.slnx` format:
 ```shell
 dotnet build ExcelMerge.slnx --configuration Release
 ```
+
+## Release Package
+
+Create self-contained Native AOT CLI and Desktop binaries plus a ZIP archive containing the AI installation guide, AI Git guide, Chinese user guide, and package manifest:
+
+    pwsh -File scripts/package-excelmerge.ps1
+
+The default output is artifacts/ExcelMerge-win-x64.zip. Use -RuntimeIdentifier linux-x64 or another supported runtime identifier for a different target. When packaging for a runtime that cannot execute on the current machine, add -SkipBinaryCheck.
 
 ## Desktop App
 
