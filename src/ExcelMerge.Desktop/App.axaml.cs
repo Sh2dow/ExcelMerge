@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Styling;
 using ExcelMerge.Application;
 
 namespace ExcelMerge.Desktop;
@@ -14,6 +15,14 @@ public sealed partial class App : Avalonia.Application
         AvaloniaXamlLoader.Load(this);
         LocalizationService.Apply("en-US");
     }
+
+    public static void ApplyTheme(string? theme) =>
+        Current!.RequestedThemeVariant = theme switch
+        {
+            "Light" => ThemeVariant.Light,
+            "Dark" => ThemeVariant.Dark,
+            _ => ThemeVariant.Default,
+        };
 
     public override void OnFrameworkInitializationCompleted()
     {

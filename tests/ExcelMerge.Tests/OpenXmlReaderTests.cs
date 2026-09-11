@@ -65,6 +65,8 @@ public sealed class OpenXmlReaderTests
         Assert.AreEqual(0, worksheet.Metadata.FirstColumnIndex);
         Assert.AreEqual(4, worksheet.Metadata.LastColumnIndex);
         Assert.AreEqual(6L, worksheet.Metadata.NonEmptyCellCount);
+        Assert.IsNull(worksheet.Metadata.ColumnWidths);
+        Assert.IsNull(worksheet.Metadata.DefaultColumnWidth);
 
         var firstRow = await worksheet.GetRowAsync(0);
         var fourthRow = await worksheet.GetRowAsync(3);
@@ -89,6 +91,44 @@ public sealed class OpenXmlReaderTests
         Assert.AreEqual(2, batch.Rows.Length);
         Assert.IsTrue(progressReports.Any(report => report.Stage == OpenXmlReaderStage.ReadingSharedStrings));
         Assert.AreEqual(OpenXmlReaderStage.Completed, progressReports[^1].Stage);
+    }
+
+    [TestMethod]
+    public async Task Reader_captures_custom_column_widths_and_row_heights()
+    {
+        using var temporaryDirectory = new TestDirectory();
+        var path = OpenXmlTestWorkbook.Create(
+            temporaryDirectory,
+            "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
+            "<sheetFormatPr defaultColWidth=\"12.5\"/>" +
+            "<cols>" +
+            "<col min=\"2\" max=\"3\" width=\"20.5\" customWidth=\"1\"/>" +
+            "<col min=\"5\" max=\"5\" width=\"9\"/>" +
+            "</cols>" +
+            "<sheetData>" +
+            "<row r=\"1\" ht=\"30\" customHeight=\"1\"><c r=\"A1\"><v>1</v></c></row>" +
+            "</sheetData>" +
+            "</worksheet>");
+        var reader = new OpenXmlWorkbookReader();
+        await using var workspace = new Workspace(new WorkspaceOptions
+        {
+            BaseDirectory = temporaryDirectory.Path,
+        });
+
+        var result = await reader.IndexAsync(path, workspace);
+
+        var widths = result.Worksheets.Single().Metadata.ColumnWidths;
+        Assert.IsNotNull(widths);
+        Assert.AreEqual(12.5, result.Worksheets.Single().Metadata.DefaultColumnWidth);
+        Assert.AreEqual(3, widths.Count);
+        Assert.IsNull(widths[0]);
+        Assert.AreEqual(20.5, widths[1]);
+        Assert.AreEqual(20.5, widths[2]);
+        Assert.IsNotNull(result.Metadata.Sheets[0].ColumnWidths);
+
+        var row = await result.Worksheets[0].GetRowAsync(0);
+        Assert.IsTrue(row.HasValue);
+        Assert.AreEqual(30d, row.Value.Height);
     }
 
     [TestMethod]

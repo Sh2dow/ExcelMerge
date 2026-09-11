@@ -244,9 +244,11 @@ public sealed class ApplicationTests
         await using (var store = new JsonApplicationStateStore(statePath))
         {
             Assert.AreEqual(20, (await store.LoadAsync()).MaximumRecentSessions);
+            Assert.AreEqual("System", (await store.LoadAsync()).Theme);
             await store.SaveAsync(new ApplicationSettings
             {
                 MaximumRecentSessions = 2,
+                Theme = "Dark",
                 KeyColumns = [0, 2],
                 CompareCellStyles = true,
             });
@@ -279,6 +281,7 @@ public sealed class ApplicationTests
 
         CollectionAssert.AreEqual(new[] { 0, 2 }, settings.KeyColumns.ToArray());
         Assert.IsTrue(settings.CompareCellStyles);
+        Assert.AreEqual("Dark", settings.Theme);
         CollectionAssert.AreEqual(new[] { thirdId, secondId }, recent.Select(static item => item.Id).ToArray());
         Assert.AreEqual(Path.GetFullPath(basePath), recent[1].BasePath);
         Assert.IsTrue(await reopened.RemoveAsync(secondId));

@@ -49,7 +49,7 @@
       </TabItem>
     </TabControl>
     <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,12,0,0">
-      <TextBlock x:Name="ValidationText" Foreground="#A13055" VerticalAlignment="Center" />
+      <TextBlock x:Name="ValidationText" Foreground="{DynamicResource ConflictTextBrush}" VerticalAlignment="Center" />
       <Button Grid.Column="1" Classes="primary" Content="{DynamicResource Save}" Click="SaveSettings" />
       <Button Grid.Column="2" Content="{DynamicResource Close}" Click="CloseWindow" />
     </Grid>

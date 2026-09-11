@@ -1,17 +1,23 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:ExcelMerge.Desktop"
+        xmlns:converters="using:ExcelMerge.Desktop.Converters"
         x:Class="ExcelMerge.Desktop.MainWindow"
         x:DataType="local:MainWindowViewModel"
         Title="{DynamicResource AppTitle}"
         Icon="avares://ExcelMerge.Desktop/Assets/app.ico"
         Width="1500" Height="920" MinWidth="980" MinHeight="620"
         WindowStartupLocation="CenterScreen"
-        Background="#F3F4F1"
+        Background="{DynamicResource AppWindowBrush}"
         KeyDown="WindowKeyDown"
         DragDrop.AllowDrop="True"
         DragDrop.DragOver="WindowDragOver"
         DragDrop.Drop="WindowDrop">
+  <Window.Resources>
+    <converters:BoolToGridLengthConverter x:Key="WorksheetsPanelWidth" TrueValue="260" FalseValue="0" />
+    <converters:BoolToGridLengthConverter x:Key="InspectorPanelWidth" TrueValue="310" FalseValue="0" />
+    <converters:BoolToGridLengthConverter x:Key="SplitterWidth" TrueValue="5" FalseValue="0" />
+  </Window.Resources>
   <Window.Styles>
     <Style Selector="Button.topbar">
       <Setter Property="MinHeight" Value="32" />
@@ -129,7 +135,7 @@
       </Grid>
     </Border>
 
-    <Border Grid.Row="1" Background="White" BorderBrush="#D3D7D9" BorderThickness="0,0,0,1"
+    <Border Grid.Row="1" Background="{DynamicResource ContentBrush}" BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="0,0,0,1"
             Padding="12,9" IsVisible="{Binding InputsExpanded}">
       <Grid ColumnDefinitions="72,*,38" RowDefinitions="Auto,Auto,Auto"
             ColumnSpacing="8" RowSpacing="6">
@@ -141,14 +147,14 @@
                 ToolTip.Tip="{DynamicResource Browse}" IsVisible="{Binding IsMergeMode}" />
 
         <TextBlock Grid.Row="1" Classes="label" Text="{DynamicResource Local}"
-                   Foreground="#197044" VerticalAlignment="Center" />
+                   Foreground="{DynamicResource LocalTextBrush}" VerticalAlignment="Center" />
         <TextBox Grid.Row="1" Grid.Column="1" Classes="compact" Text="{Binding LocalPath, Mode=TwoWay}"
                  PlaceholderText="LOCAL .xlsx, .csv, or .tsv" />
         <Button Grid.Row="1" Grid.Column="2" Content="..." Click="BrowseLocal"
                 ToolTip.Tip="{DynamicResource Browse}" />
 
         <TextBlock Grid.Row="2" Classes="label" Text="{DynamicResource Remote}"
-                   Foreground="#A13055" VerticalAlignment="Center" />
+                   Foreground="{DynamicResource RemoteTextBrush}" VerticalAlignment="Center" />
         <TextBox Grid.Row="2" Grid.Column="1" Classes="compact" Text="{Binding RemotePath, Mode=TwoWay}"
                  PlaceholderText="REMOTE .xlsx, .csv, or .tsv" />
         <Button Grid.Row="2" Grid.Column="2" Content="..." Click="BrowseRemote"
@@ -156,27 +162,39 @@
       </Grid>
     </Border>
 
-    <Border Grid.Row="2" Background="#FAFAF8" BorderBrush="#D3D7D9" BorderThickness="0,0,0,1"
+    <Border Grid.Row="2" Background="{DynamicResource CommandBarBrush}" BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="0,0,0,1"
             Padding="12,7">
-      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,18,*,Auto,Auto" ColumnSpacing="7">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,18,*,Auto,Auto" ColumnSpacing="7">
         <Button Classes="primary" Content="{DynamicResource Open}" Command="{Binding RunCommand}" MinWidth="82" />
         <Button Grid.Column="1" Content="{DynamicResource Cancel}" Command="{Binding CancelCommand}" />
         <Button Grid.Column="2" Content="{DynamicResource Swap}" Command="{Binding SwapSidesCommand}" />
         <CheckBox Grid.Column="3" Content="{DynamicResource HideUnchanged}"
                   IsChecked="{Binding HideUnchanged}" VerticalAlignment="Center" />
         <Button Grid.Column="4" Content="{Binding InputToggleText}" Command="{Binding ToggleInputsCommand}" />
-        <TextBlock Grid.Column="6" Text="{Binding Status}" VerticalAlignment="Center"
+        <ToggleButton Grid.Column="5" Content="{DynamicResource Sheets}"
+                      IsChecked="{Binding WorksheetsPanelVisible}" VerticalAlignment="Center" />
+        <ToggleButton Grid.Column="6" Content="{DynamicResource Inspector}"
+                      IsChecked="{Binding InspectorPanelVisible}" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="8" Text="{Binding Status}" VerticalAlignment="Center"
                    TextTrimming="CharacterEllipsis" />
-        <ProgressBar Grid.Column="7" Minimum="0" Maximum="100" Value="{Binding ProgressValue}"
+        <ProgressBar Grid.Column="9" Minimum="0" Maximum="100" Value="{Binding ProgressValue}"
                      IsIndeterminate="{Binding ProgressIndeterminate}" IsVisible="{Binding IsBusy}"
                      Width="160" Height="8" VerticalAlignment="Center" />
-        <TextBlock Grid.Column="8" Text="{Binding ConflictSummary}" Foreground="#8D2E46"
+        <TextBlock Grid.Column="10" Text="{Binding ConflictSummary}" Foreground="{DynamicResource ConflictTextBrush}"
                    FontWeight="SemiBold" VerticalAlignment="Center" />
       </Grid>
     </Border>
 
-    <Grid Grid.Row="3" ColumnDefinitions="260,5,*,5,310">
-      <Border Grid.Column="0" Background="#F8F9F6" BorderBrush="#D3D7D9" BorderThickness="0,0,1,0">
+    <Grid Grid.Row="3">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="{Binding WorksheetsPanelVisible, Converter={StaticResource WorksheetsPanelWidth}}" />
+        <ColumnDefinition Width="{Binding WorksheetsPanelVisible, Converter={StaticResource SplitterWidth}}" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="{Binding InspectorPanelVisible, Converter={StaticResource SplitterWidth}}" />
+        <ColumnDefinition Width="{Binding InspectorPanelVisible, Converter={StaticResource InspectorPanelWidth}}" />
+      </Grid.ColumnDefinitions>
+      <Border Grid.Column="0" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="0,0,1,0"
+              IsVisible="{Binding WorksheetsPanelVisible}">
         <Grid RowDefinitions="Auto,Auto,Auto,*">
           <TextBlock Grid.Row="0" Text="{DynamicResource Sheets}" FontWeight="SemiBold"
                      Margin="12,10,12,7" />
@@ -186,7 +204,7 @@
               <DataTemplate x:DataType="local:SheetItemViewModel">
                 <Grid ColumnDefinitions="*,Auto" Margin="5,4">
                   <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                  <TextBlock Grid.Column="1" Text="{Binding Summary}" Foreground="#68717B" FontSize="11" />
+                  <TextBlock Grid.Column="1" Text="{Binding Summary}" Foreground="{DynamicResource MutedTextBrush}" FontSize="11" />
                 </Grid>
               </DataTemplate>
             </ListBox.ItemTemplate>
@@ -194,7 +212,7 @@
           <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="12,8,12,5"
                 IsVisible="{Binding IsMergeMode}">
             <TextBlock Text="{DynamicResource Conflicts}" FontWeight="SemiBold" />
-            <TextBlock Grid.Column="1" Text="{Binding Conflicts.Count}" Foreground="#8D2E46"
+            <TextBlock Grid.Column="1" Text="{Binding Conflicts.Count}" Foreground="{DynamicResource ConflictTextBrush}"
                        FontSize="11" VerticalAlignment="Center" />
           </Grid>
           <ListBox x:Name="ConflictNavigator" Grid.Row="3" ItemsSource="{Binding Conflicts}"
@@ -210,10 +228,10 @@
                   <TextBlock Text="{Binding Location}" FontWeight="SemiBold"
                              FontFamily="Consolas" VerticalAlignment="Center" />
                   <TextBlock Grid.Column="1" Text="{Binding Kind}" FontSize="10"
-                             Foreground="#5C6570" TextTrimming="CharacterEllipsis"
+                             Foreground="{DynamicResource SubtleTextBrush}" TextTrimming="CharacterEllipsis"
                              VerticalAlignment="Center" />
                   <TextBlock Grid.Column="2" Text="{Binding ResolutionText}" FontSize="9"
-                             Foreground="#7A4A59" VerticalAlignment="Center" />
+                             Foreground="{DynamicResource ResolutionTextBrush}" VerticalAlignment="Center" />
                 </Grid>
               </DataTemplate>
             </ListBox.ItemTemplate>
@@ -228,7 +246,7 @@
               <DataTemplate x:DataType="local:RecentItemViewModel">
                 <StackPanel Margin="5,3">
                   <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" FontSize="11" />
-                  <TextBlock Text="{Binding Timestamp}" Foreground="#7A838C" FontSize="10" />
+                  <TextBlock Text="{Binding Timestamp}" Foreground="{DynamicResource FaintTextBrush}" FontSize="10" />
                 </StackPanel>
               </DataTemplate>
             </ListBox.ItemTemplate>
@@ -236,10 +254,11 @@
         </Grid>
       </Border>
 
-      <GridSplitter Grid.Column="1" Background="#D3D7D9" ResizeDirection="Columns" />
+      <GridSplitter Grid.Column="1" Background="{DynamicResource PanelBorderBrush}" ResizeDirection="Columns"
+                    IsVisible="{Binding WorksheetsPanelVisible}" />
 
-      <Grid Grid.Column="2" RowDefinitions="Auto,*" Background="White">
-        <Border Grid.Row="0" Background="#F8F9F7" BorderBrush="#D3D7D9" BorderThickness="0,0,0,1"
+      <Grid Grid.Column="2" RowDefinitions="Auto,*" Background="{DynamicResource ContentBrush}">
+        <Border Grid.Row="0" Background="{DynamicResource PanelHeaderBrush}" BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="0,0,0,1"
                 Padding="8,6">
           <Grid ColumnDefinitions="180,Auto,Auto,Auto,Auto,18,Auto,Auto,*,Auto,Auto" ColumnSpacing="6">
             <TextBox x:Name="SearchBox" Grid.Column="0" Classes="compact" Text="{Binding SearchText, Mode=TwoWay}"
@@ -253,7 +272,7 @@
             <Button Grid.Column="7" Content="&#x2192;" Command="{Binding NextChangeCommand}"
                     ToolTip.Tip="{DynamicResource Next}" />
             <TextBlock Grid.Column="8" Text="{Binding SearchSummary}" VerticalAlignment="Center"
-                       Foreground="#68717B" HorizontalAlignment="Right" />
+                       Foreground="{DynamicResource MutedTextBrush}" HorizontalAlignment="Right" />
             <Button Grid.Column="9" Content="{DynamicResource CopyTsv}" Click="CopyTsv" />
             <Button Grid.Column="10" Content="{DynamicResource CopyCsv}" Click="CopyCsv" />
           </Grid>
@@ -271,8 +290,8 @@
                                Document="{Binding GridDocument}" Margin="1,0,0,0"
                                ToolTip.Tip="Change map"
                                AutomationProperties.Name="Change map" />
-          <Border Grid.Row="1" Grid.ColumnSpan="4" Background="#E9ECEF"
-                   BorderBrush="#D5D9DD" BorderThickness="0,1,0,0"
+          <Border Grid.Row="1" Grid.ColumnSpan="4" Background="{DynamicResource ChromeBrush}"
+                   BorderBrush="{DynamicResource ChromeBorderBrush}" BorderThickness="0,1,0,0"
                    IsHitTestVisible="False" />
           <ScrollBar x:Name="LocalHorizontalScrollBar" Grid.Row="1" Grid.Column="0"
                      Orientation="Horizontal" Visibility="Visible" AllowAutoHide="False"
@@ -287,9 +306,11 @@
         </Grid>
       </Grid>
 
-      <GridSplitter Grid.Column="3" Background="#D3D7D9" ResizeDirection="Columns" />
+      <GridSplitter Grid.Column="3" Background="{DynamicResource PanelBorderBrush}" ResizeDirection="Columns"
+                    IsVisible="{Binding InspectorPanelVisible}" />
 
-      <Border Grid.Column="4" Background="#F8F9F6" BorderBrush="#D3D7D9" BorderThickness="1,0,0,0">
+      <Border Grid.Column="4" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1,0,0,0"
+              IsVisible="{Binding InspectorPanelVisible}">
         <TabControl>
           <TabItem Header="{DynamicResource Inspector}">
             <ScrollViewer>
@@ -297,9 +318,9 @@
                 <TextBlock Text="{Binding Inspector.Address}" FontSize="17" FontWeight="SemiBold" />
                 <TextBlock Classes="label" Text="{DynamicResource Base}" />
                 <TextBox Text="{Binding Inspector.BaseValue}" IsReadOnly="True" TextWrapping="Wrap" />
-                <TextBlock Classes="label" Text="{DynamicResource Local}" Foreground="#197044" />
+                <TextBlock Classes="label" Text="{DynamicResource Local}" Foreground="{DynamicResource LocalTextBrush}" />
                 <TextBox Text="{Binding Inspector.LocalValue}" IsReadOnly="True" TextWrapping="Wrap" />
-                <TextBlock Classes="label" Text="{DynamicResource Remote}" Foreground="#A13055" />
+                <TextBlock Classes="label" Text="{DynamicResource Remote}" Foreground="{DynamicResource RemoteTextBrush}" />
                 <TextBox Text="{Binding Inspector.RemoteValue}" IsReadOnly="True" TextWrapping="Wrap" />
                 <TextBlock Classes="label" Text="{DynamicResource Result}" />
                 <TextBox Text="{Binding Inspector.ResultValue}" IsReadOnly="True" TextWrapping="Wrap" />
@@ -319,19 +340,19 @@
                   <TextBlock Text="{Binding SelectedConflict.Location}" FontSize="17"
                              FontWeight="SemiBold" FontFamily="Consolas" />
                   <TextBlock Grid.Column="1" Text="{Binding SelectedConflict.ResolutionText}"
-                             Foreground="#8D2E46" FontSize="11" VerticalAlignment="Center" />
+                             Foreground="{DynamicResource ConflictTextBrush}" FontSize="11" VerticalAlignment="Center" />
                   <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SelectedConflict.Kind}"
-                             Foreground="#68717B" FontSize="11" />
+                             Foreground="{DynamicResource MutedTextBrush}" FontSize="11" />
                 </Grid>
-                <Border BorderBrush="#D3D7D9" BorderThickness="0,0,0,1" />
+                <Border BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="0,0,0,1" />
 
                 <TextBlock Classes="label" Text="{DynamicResource Base}" />
                 <TextBox Text="{Binding SelectedConflict.BaseValue, Mode=OneWay}"
                          IsReadOnly="True" TextWrapping="Wrap" />
-                <TextBlock Classes="label" Text="{DynamicResource Local}" Foreground="#197044" />
+                <TextBlock Classes="label" Text="{DynamicResource Local}" Foreground="{DynamicResource LocalTextBrush}" />
                 <TextBox Text="{Binding SelectedConflict.LocalValue, Mode=OneWay}"
                          IsReadOnly="True" TextWrapping="Wrap" />
-                <TextBlock Classes="label" Text="{DynamicResource Remote}" Foreground="#A13055" />
+                <TextBlock Classes="label" Text="{DynamicResource Remote}" Foreground="{DynamicResource RemoteTextBrush}" />
                 <TextBox Text="{Binding SelectedConflict.RemoteValue, Mode=OneWay}"
                          IsReadOnly="True" TextWrapping="Wrap" />
 
@@ -356,11 +377,11 @@
       </Border>
     </Grid>
 
-    <Border Grid.Row="4" Background="#E9ECEA" BorderBrush="#D3D7D9" BorderThickness="0,1,0,0"
+    <Border Grid.Row="4" Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="0,1,0,0"
             Padding="10,4">
       <Grid ColumnDefinitions="*,Auto">
-        <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#5C6570" />
-        <TextBlock Grid.Column="1" Text="{Binding GridDocument.Title}" FontSize="11" Foreground="#5C6570" />
+        <TextBlock Text="{Binding Status}" FontSize="11" Foreground="{DynamicResource SubtleTextBrush}" />
+        <TextBlock Grid.Column="1" Text="{Binding GridDocument.Title}" FontSize="11" Foreground="{DynamicResource SubtleTextBrush}" />
       </Grid>
     </Border>
   </Grid>

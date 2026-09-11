@@ -182,6 +182,8 @@ internal static class OpenXmlReaderWorksheetIndexer
     {
         var storedRowIndices = new List<int>();
         var columnStyles = new int?[MaximumColumnCount];
+        Dictionary<int, double>? columnWidths = null;
+        double? defaultColumnWidth = null;
         var sharedFormulas = new OpenXmlReaderSharedFormulaResolver(
             sheet.Metadata,
             sheet.SourcePath);
@@ -212,6 +214,17 @@ internal static class OpenXmlReaderWorksheetIndexer
                     }
                 }
 
+                if (reader.IsStartElement && reader.ElementType == typeof(SheetFormatProperties))
+                {
+                    if (sawSheetData || reader.LoadCurrentElement() is not SheetFormatProperties format)
+                    {
+                        throw InvalidWorksheet(sheet, "The worksheet has invalid sheet format properties.");
+                    }
+
+                    defaultColumnWidth = ReadDefaultColumnWidth(format, sheet);
+                    continue;
+                }
+
                 if (reader.IsStartElement && reader.ElementType == typeof(Columns))
                 {
                     if (sawSheetData || reader.LoadCurrentElement() is not Columns columns)
@@ -222,6 +235,7 @@ internal static class OpenXmlReaderWorksheetIndexer
                     ReadColumnStyles(
                         columns,
                         columnStyles,
+                        ref columnWidths,
                         styles,
                         sheet,
                         cancellationToken);
@@ -321,6 +335,8 @@ internal static class OpenXmlReaderWorksheetIndexer
             FirstColumnIndex = firstColumnIndex,
             LastColumnIndex = lastColumnIndex,
             NonEmptyCellCount = nonEmptyCellCount,
+            ColumnWidths = BuildColumnWidthList(columnWidths),
+            DefaultColumnWidth = defaultColumnWidth,
         };
         return new IndexedWorksheet(metadata, storedRowIndices.ToArray(), cellCount);
     }
@@ -481,6 +497,7 @@ internal static class OpenXmlReaderWorksheetIndexer
     private static void ReadColumnStyles(
         Columns columns,
         int?[] destination,
+        ref Dictionary<int, double>? columnWidths,
         OpenXmlReaderStyleCatalog styles,
         OpenXmlWorkbookReader.DiscoveredSheet sheet,
         CancellationToken cancellationToken)
@@ -498,8 +515,19 @@ internal static class OpenXmlReaderWorksheetIndexer
                 throw InvalidWorksheet(sheet, "The worksheet has an invalid column range.");
             }
 
+            double? customWidth = null;
+            if (column.CustomWidth?.Value == true && column.Width is { } width)
+            {
+                if (!double.IsFinite(width.Value) || width.Value < 0)
+                {
+                    throw InvalidWorksheet(sheet, "The worksheet has an invalid column width.");
+                }
+
+                customWidth = width.Value;
+            }
+
             var styleIndex = GetStyleIndex(column.Style, styles, sheet, "column");
-            if (styleIndex is null)
+            if (styleIndex is null && customWidth is null)
             {
                 continue;
             }
@@ -513,9 +541,51 @@ internal static class OpenXmlReaderWorksheetIndexer
                     cancellationToken.ThrowIfCancellationRequested();
                 }
 
-                destination[columnIndex] = styleIndex;
+                if (styleIndex is { } style)
+                {
+                    destination[columnIndex] = style;
+                }
+
+                if (customWidth is { } columnWidth)
+                {
+                    (columnWidths ??= [])[columnIndex] = columnWidth;
+                }
             }
         }
+    }
+
+    private static double? ReadDefaultColumnWidth(
+        SheetFormatProperties format,
+        OpenXmlWorkbookReader.DiscoveredSheet sheet)
+    {
+        var width = format.DefaultColumnWidth?.Value ?? format.BaseColumnWidth?.Value;
+        if (width is null)
+        {
+            return null;
+        }
+
+        if (!double.IsFinite(width.Value) || width.Value < 0)
+        {
+            throw InvalidWorksheet(sheet, "The worksheet has an invalid default column width.");
+        }
+
+        return width.Value;
+    }
+
+    private static double?[]? BuildColumnWidthList(Dictionary<int, double>? columnWidths)
+    {
+        if (columnWidths is null || columnWidths.Count == 0)
+        {
+            return null;
+        }
+
+        var widths = new double?[columnWidths.Keys.Max() + 1];
+        foreach (var (columnIndex, width) in columnWidths)
+        {
+            widths[columnIndex] = width;
+        }
+
+        return widths;
     }
 
     private static OpenXmlReaderException InvalidWorksheet(

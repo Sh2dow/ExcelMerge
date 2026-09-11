@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Styling;
 
 namespace ExcelMerge.Desktop;
 
@@ -22,13 +23,7 @@ public sealed class DiffChangeMap : Control
     public static readonly StyledProperty<int> VisibleColumnCountProperty =
         AvaloniaProperty.Register<DiffChangeMap, int>(nameof(VisibleColumnCount), 1);
 
-    private static readonly IBrush BackgroundBrush = new SolidColorBrush(Color.Parse("#EEF0F1"));
-    private static readonly IBrush ChangedBrush = new SolidColorBrush(Color.Parse("#E4B928"));
-    private static readonly IBrush ConflictBrush = new SolidColorBrush(Color.Parse("#C54A68"));
-    private static readonly IBrush ResolvedBrush = new SolidColorBrush(Color.Parse("#4F8B68"));
-    private static readonly IBrush ViewportBrush = new SolidColorBrush(Color.Parse("#35FFFFFF"));
-    private static readonly Pen BorderPen = new(new SolidColorBrush(Color.Parse("#B8BEC4")), 1);
-    private static readonly Pen ViewportPen = new(new SolidColorBrush(Color.Parse("#30363C")), 1.5);
+    private GridPalette _palette = GridPalette.Light;
     private bool _dragging;
 
     static DiffChangeMap()
@@ -83,7 +78,7 @@ public sealed class DiffChangeMap : Control
     {
         base.Render(context);
         var bounds = new Rect(Bounds.Size);
-        context.DrawRectangle(BackgroundBrush, BorderPen, bounds.Deflate(0.5));
+        context.DrawRectangle(_palette.MapBackground, _palette.MapBorderPen, bounds.Deflate(0.5));
         if (Document is not { RowCount: > 0 } document || bounds.Height <= 2 || bounds.Width <= 2)
         {
             return;
@@ -101,7 +96,7 @@ public sealed class DiffChangeMap : Control
             var y = content.Y + (run.StartRowIndex / (double)document.RowCount * content.Height);
             var height = Math.Max(2, run.RowCount / (double)document.RowCount * content.Height);
             context.DrawRectangle(
-                ChangedBrush,
+                _palette.MapChanged,
                 null,
                 new Rect(content.X, y, content.Width, Math.Min(height, content.Bottom - y)));
         }
@@ -162,8 +157,8 @@ public sealed class DiffChangeMap : Control
                 (double)columnCount * content.Width);
         viewportX = Math.Min(viewportX, content.Right - viewportWidth);
         context.DrawRectangle(
-            ViewportBrush,
-            ViewportPen,
+            _palette.MapViewportFill,
+            _palette.MapViewportPen,
             new Rect(viewportX, viewportY, viewportWidth, viewportHeight));
     }
 
@@ -221,6 +216,29 @@ public sealed class DiffChangeMap : Control
         PositionRequested?.Invoke(horizontalRatio, verticalRatio);
     }
 
-    private static IBrush MarkerBrush(GridCellVisualState state) =>
-        state == GridCellVisualState.Conflict ? ConflictBrush : ResolvedBrush;
+    private IBrush MarkerBrush(GridCellVisualState state) =>
+        state == GridCellVisualState.Conflict ? _palette.MapConflict : _palette.MapResolved;
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        ActualThemeVariantChanged += OnActualThemeVariantChanged;
+        _palette = GridPalette.ForVariant(ActualThemeVariant);
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        ActualThemeVariantChanged -= OnActualThemeVariantChanged;
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    private void OnActualThemeVariantChanged(object? sender, EventArgs e)
+    {
+        var palette = GridPalette.ForVariant(ActualThemeVariant);
+        if (!ReferenceEquals(palette, _palette))
+        {
+            _palette = palette;
+            InvalidateVisual();
+        }
+    }
 }

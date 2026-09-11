@@ -42,6 +42,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private ApplicationSettings _settings = new();
     private bool _hideUnchanged;
     private bool _inputsExpanded = true;
+    private bool _worksheetsPanelVisible = true;
+    private bool _inspectorPanelVisible = true;
     private string? _suggestedOutputPath;
     private bool _suggestedOutputSaved;
     private bool _selectingConflictFromGrid;
@@ -166,6 +168,18 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public string InputToggleText => InputsExpanded
         ? LocalizationService.Get("Collapse")
         : LocalizationService.Get("Expand");
+
+    public bool WorksheetsPanelVisible
+    {
+        get => _worksheetsPanelVisible;
+        set => SetProperty(ref _worksheetsPanelVisible, value);
+    }
+
+    public bool InspectorPanelVisible
+    {
+        get => _inspectorPanelVisible;
+        set => SetProperty(ref _inspectorPanelVisible, value);
+    }
 
     public string? SuggestedOutputPath
     {
@@ -545,6 +559,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             await _application.CleanupStaleWorkspacesAsync();
             _settings = await _settingsStore.LoadAsync();
+            App.ApplyTheme(_settings.Theme);
             await RefreshRecentAsync();
         }
         catch (Exception exception)

@@ -8,6 +8,8 @@ public sealed record ApplicationSettings
 {
     public int MaximumRecentSessions { get; init; } = 20;
 
+    public string Theme { get; init; } = "System";
+
     public IReadOnlyList<int> KeyColumns { get; init; } = Array.Empty<int>();
 
     public bool CompareFormulaCachedValues { get; init; } = true;
@@ -233,6 +235,7 @@ public sealed class JsonApplicationStateStore :
         var settings = new ApplicationSettings
         {
             MaximumRecentSessions = ReadInt(settingsNode, "maximumRecentSessions", required: true),
+            Theme = ReadTheme(settingsNode),
             KeyColumns = ReadIntArray(settingsNode, "keyColumns"),
             CompareFormulaCachedValues = ReadBool(settingsNode, "compareFormulaCachedValues"),
             CompareDisplayText = ReadBool(settingsNode, "compareDisplayText"),
@@ -346,6 +349,7 @@ public sealed class JsonApplicationStateStore :
         new()
         {
             ["maximumRecentSessions"] = settings.MaximumRecentSessions,
+            ["theme"] = settings.Theme,
             ["keyColumns"] = new JsonArray(settings.KeyColumns
                 .Select(static value => (JsonNode?)JsonValue.Create(value))
                 .ToArray()),
@@ -373,6 +377,11 @@ public sealed class JsonApplicationStateStore :
                     .ToArray()),
         };
 
+    private static string ReadTheme(JsonObject source) =>
+        source["theme"]?.GetValue<string>() is { } theme && theme is "Light" or "Dark"
+            ? theme
+            : "System";
+
     private static int ReadInt(JsonObject source, string name, bool required) =>
         source[name]?.GetValue<int>() ?? (required
             ? throw InvalidState($"State value '{name}' is missing.")
@@ -394,7 +403,9 @@ public sealed class JsonApplicationStateStore :
 
     private static void ValidateSettings(ApplicationSettings settings)
     {
-        if (settings.MaximumRecentSessions is < 0 or > 1000 || settings.KeyColumns is null)
+        if (settings.MaximumRecentSessions is < 0 or > 1000 ||
+            settings.KeyColumns is null ||
+            settings.Theme is not ("System" or "Light" or "Dark"))
         {
             throw new ArgumentOutOfRangeException(nameof(settings));
         }

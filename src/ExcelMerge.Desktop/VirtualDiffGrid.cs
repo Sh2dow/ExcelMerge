@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using ExcelMerge.Domain;
 
@@ -21,21 +22,7 @@ public sealed class VirtualDiffGrid : Control
     public static readonly StyledProperty<GridDocument?> DocumentProperty =
         AvaloniaProperty.Register<VirtualDiffGrid, GridDocument?>(nameof(Document));
 
-    private static readonly IBrush HeaderBackground = new SolidColorBrush(Color.Parse("#E9ECEF"));
-    private static readonly IBrush GridLine = new SolidColorBrush(Color.Parse("#D5D9DD"));
-    private static readonly IBrush TextBrush = new SolidColorBrush(Color.Parse("#202428"));
-    private static readonly IBrush MutedTextBrush = new SolidColorBrush(Color.Parse("#68717B"));
-    private static readonly IBrush LocalHeader = new SolidColorBrush(Color.Parse("#DDEFE5"));
-    private static readonly IBrush RemoteHeader = new SolidColorBrush(Color.Parse("#F2DFE4"));
-    private static readonly IBrush ChangedBackground = new SolidColorBrush(Color.Parse("#FFF4C7"));
-    private static readonly IBrush ConflictBackground = new SolidColorBrush(Color.Parse("#FADCE2"));
-    private static readonly IBrush ResolvedBackground = new SolidColorBrush(Color.Parse("#DDEFE5"));
-    private static readonly IBrush SelectedBackground = new SolidColorBrush(Color.Parse("#DCEBFA"));
-    private static readonly Pen GridPen = new(GridLine, 1);
-    private static readonly Pen SplitPen = new(new SolidColorBrush(Color.Parse("#8A939D")), 1.5);
-    private static readonly Pen SelectionPen = new(new SolidColorBrush(Color.Parse("#1769AA")), 2);
-    private static readonly Pen ConflictPen = new(new SolidColorBrush(Color.Parse("#C54A68")), 1.5);
-    private static readonly Pen ResolvedPen = new(new SolidColorBrush(Color.Parse("#4F8B68")), 1.5);
+    private GridPalette _palette = GridPalette.Light;
     private readonly Dictionary<int, GridLoadedRow> _cache = [];
     private readonly LinkedList<int> _lru = [];
     private readonly HashSet<int> _pending = [];
@@ -43,6 +30,8 @@ public sealed class VirtualDiffGrid : Control
     private readonly LinkedList<TextLayoutKey> _textLru = [];
     private readonly Dictionary<int, double> _columnWidths = [];
     private readonly Dictionary<int, double> _rowHeights = [];
+    private readonly Dictionary<(string Old, string New), TextSpan[]> _diffSpanCache = [];
+    private readonly ContentWidthFitter _autoFit = new();
     private CancellationTokenSource _loadCancellation = new();
     private int _firstRow;
     private int _firstColumn;
@@ -106,14 +95,14 @@ public sealed class VirtualDiffGrid : Control
     {
         base.Render(context);
         var bounds = new Rect(Bounds.Size);
-        context.DrawRectangle(Brushes.White, null, bounds);
+        context.DrawRectangle(_palette.Background, null, bounds);
         if (Document is null || bounds.Width < 280 || bounds.Height < 80)
         {
             DrawText(
                 context,
                 LocalizationService.Get("NoSession"),
                 new Point(18, 18),
-                MutedTextBrush,
+                _palette.MutedText,
                 13);
             return;
         }
@@ -127,7 +116,7 @@ public sealed class VirtualDiffGrid : Control
 
         DrawPaneHeader(context, 0, paneWidth, RowHeaderWidth, HeaderHeight, GridPane.Local);
         DrawPaneHeader(context, paneWidth, paneWidth, RowHeaderWidth, HeaderHeight, GridPane.Remote);
-        context.DrawLine(SplitPen, new Point(paneWidth, 0), new Point(paneWidth, bounds.Height));
+        context.DrawLine(_palette.SplitPen, new Point(paneWidth, 0), new Point(paneWidth, bounds.Height));
 
         var y = HeaderHeight;
         for (var visibleRow = 0; visibleRow < visibleRows; visibleRow++)
@@ -141,8 +130,8 @@ public sealed class VirtualDiffGrid : Control
             var rowHeight = GetRowHeight(viewRow);
             var descriptor = Document.Rows[viewRow];
             var background = descriptor.State == GridRowVisualState.Changed
-                ? ChangedBackground
-                : Brushes.White;
+                ? _palette.ChangedBackground
+                : _palette.Background;
             context.DrawRectangle(background, null, new Rect(0, y, bounds.Width, rowHeight));
             var rowHeaderState = Document.GetRowHeaderVisualState(viewRow);
             DrawRowHeader(
@@ -164,7 +153,7 @@ public sealed class VirtualDiffGrid : Control
             _cache.TryGetValue(viewRow, out var loaded);
             DrawCells(
                 context,
-                loaded?.LocalRow,
+                loaded,
                 GridPane.Local,
                 y,
                 rowHeight,
@@ -172,14 +161,14 @@ public sealed class VirtualDiffGrid : Control
                 viewRow);
             DrawCells(
                 context,
-                loaded?.RemoteRow,
+                loaded,
                 GridPane.Remote,
                 y,
                 rowHeight,
                 visibleColumns,
                 viewRow);
             context.DrawLine(
-                GridPen,
+                _palette.GridPen,
                 new Point(0, y + rowHeight),
                 new Point(bounds.Width, y + rowHeight));
             y += rowHeight;
@@ -249,7 +238,15 @@ public sealed class VirtualDiffGrid : Control
     public double GetColumnWidth(int columnIndex)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(columnIndex);
-        return _columnWidths.GetValueOrDefault(columnIndex, GridSettings.ColumnWidth);
+        if (_columnWidths.TryGetValue(columnIndex, out var width))
+        {
+            return width;
+        }
+
+        var fallback = Document?.SourceDefaultColumnWidth ?? GridSettings.ColumnWidth;
+        return _autoFit.GetWidth(columnIndex) is { } fit
+            ? Math.Max(fallback, fit)
+            : fallback;
     }
 
     public double GetRowHeight(int viewRowIndex)
@@ -298,6 +295,31 @@ public sealed class VirtualDiffGrid : Control
         {
             UpdateHorizontalScrollMetrics();
             UpdateVerticalScrollMetrics();
+        }
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        ActualThemeVariantChanged += OnActualThemeVariantChanged;
+        UpdatePalette();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        ActualThemeVariantChanged -= OnActualThemeVariantChanged;
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    private void OnActualThemeVariantChanged(object? sender, EventArgs e) => UpdatePalette();
+
+    private void UpdatePalette()
+    {
+        var palette = GridPalette.ForVariant(ActualThemeVariant);
+        if (!ReferenceEquals(palette, _palette))
+        {
+            _palette = palette;
+            InvalidateVisual();
         }
     }
 
@@ -476,14 +498,14 @@ public sealed class VirtualDiffGrid : Control
         using (context.PushClip(new Rect(paneLeft, 0, paneWidth, headerHeight)))
         {
             context.DrawRectangle(
-                pane == GridPane.Local ? LocalHeader : RemoteHeader,
+                pane == GridPane.Local ? _palette.LocalHeader : _palette.RemoteHeader,
                 null,
                 new Rect(paneLeft, 0, paneWidth, headerHeight));
             DrawText(
                 context,
                 pane == GridPane.Local ? LocalizationService.Get("Local") : LocalizationService.Get("Remote"),
                 new Point(paneLeft + 8, 7),
-                TextBrush,
+                _palette.Text,
                 11,
                 FontWeight.SemiBold);
             var columns = CalculateVisibleColumnCount(Bounds.Width);
@@ -492,14 +514,14 @@ public sealed class VirtualDiffGrid : Control
             {
                 var column = _firstColumn + index;
                 var columnWidth = GetColumnWidth(column);
-                context.DrawLine(GridPen, new Point(x, 0), new Point(x, headerHeight));
+                context.DrawLine(_palette.GridPen, new Point(x, 0), new Point(x, headerHeight));
                 using (context.PushClip(new Rect(x + 1, 0, columnWidth - 2, headerHeight)))
                 {
                     DrawText(
                         context,
                         ColumnName(column),
                         new Point(x + 6, 7),
-                        MutedTextBrush,
+                        _palette.MutedText,
                         11,
                         FontWeight.SemiBold,
                         columnWidth - 12);
@@ -509,7 +531,7 @@ public sealed class VirtualDiffGrid : Control
             }
 
             context.DrawLine(
-                GridPen,
+                _palette.GridPen,
                 new Point(paneLeft, headerHeight),
                 new Point(paneLeft + paneWidth, headerHeight));
         }
@@ -529,19 +551,19 @@ public sealed class VirtualDiffGrid : Control
         {
             var background = visualState switch
             {
-                GridCellVisualState.Conflict => ConflictBackground,
-                GridCellVisualState.Resolved => ResolvedBackground,
-                _ => HeaderBackground,
+                GridCellVisualState.Conflict => _palette.ConflictBackground,
+                GridCellVisualState.Resolved => _palette.ResolvedBackground,
+                _ => _palette.HeaderBackground,
             };
             context.DrawRectangle(background, null, bounds);
             DrawText(
                 context,
                 sourceRow.HasValue ? (sourceRow.Value + 1).ToString(CultureInfo.CurrentCulture) : "-",
                 new Point(paneLeft + 6, y + 5),
-                MutedTextBrush,
+                _palette.MutedText,
                 11);
             context.DrawLine(
-                GridPen,
+                _palette.GridPen,
                 new Point(paneLeft + width, y),
                 new Point(paneLeft + width, y + rowHeight));
         }
@@ -549,13 +571,16 @@ public sealed class VirtualDiffGrid : Control
 
     private void DrawCells(
         DrawingContext context,
-        RowRecord? row,
+        GridLoadedRow? loaded,
         GridPane pane,
         double y,
         double rowHeight,
         int visibleColumns,
         int viewRow)
     {
+        var row = loaded is null
+            ? null
+            : pane == GridPane.Local ? loaded.LocalRow : loaded.RemoteRow;
         var paneBounds = GetPaneBounds(pane);
         using (context.PushClip(new Rect(paneBounds.X, y, paneBounds.Width, rowHeight)))
         {
@@ -574,42 +599,159 @@ public sealed class VirtualDiffGrid : Control
                 {
                     context.DrawRectangle(
                         visualState == GridCellVisualState.Conflict
-                            ? ConflictBackground
-                            : ResolvedBackground,
-                        visualState == GridCellVisualState.Conflict ? ConflictPen : ResolvedPen,
+                            ? _palette.ConflictBackground
+                            : _palette.ResolvedBackground,
+                        visualState == GridCellVisualState.Conflict ? _palette.ConflictPen : _palette.ResolvedPen,
                         cellBounds.Deflate(1));
                 }
                 else if (selected)
                 {
-                    context.DrawRectangle(SelectedBackground, null, cellBounds.Deflate(1));
+                    context.DrawRectangle(_palette.SelectedBackground, null, cellBounds.Deflate(1));
                 }
 
                 if (selected)
                 {
-                    context.DrawRectangle(null, SelectionPen, cellBounds.Deflate(1));
+                    context.DrawRectangle(null, _palette.SelectionPen, cellBounds.Deflate(1));
                 }
 
                 var cell = GridDocument.FindCell(row, column);
                 if (cell.HasValue)
                 {
+                    var text = GridDocument.FormatValue(cell.Value.Value);
+                    var origin = new Point(x + 6, y + 5);
+                    var diff = GetDiffHighlight(loaded, pane, viewRow, column, text);
+                    if (diff is not null &&
+                        GetTextLayout(text, 11, null, _palette.Text).Width > columnWidth - 12)
+                    {
+                        diff = null;
+                    }
                     using (context.PushClip(cellBounds.Deflate(2)))
                     {
-                        DrawText(
-                            context,
-                            GridDocument.FormatValue(cell.Value.Value),
-                            new Point(x + 6, y + 5),
-                            TextBrush,
-                            11,
-                            maxWidth: columnWidth - 12);
+                        if (diff is { } highlight)
+                        {
+                            DrawHighlightedText(
+                                context,
+                                text,
+                                highlight.Spans,
+                                origin,
+                                _palette.Text,
+                                11,
+                                highlight.Brush);
+                        }
+                        else
+                        {
+                            DrawText(
+                                context,
+                                text,
+                                origin,
+                                _palette.Text,
+                                11,
+                                maxWidth: columnWidth - 12);
+                        }
                     }
                 }
 
                 context.DrawLine(
-                    GridPen,
+                    _palette.GridPen,
                     new Point(x + columnWidth, y),
                     new Point(x + columnWidth, y + rowHeight));
                 x += columnWidth;
             }
+        }
+    }
+
+    private (TextSpan[] Spans, IBrush Brush)? GetDiffHighlight(
+        GridLoadedRow? loaded,
+        GridPane pane,
+        int viewRow,
+        int column,
+        string text)
+    {
+        if (loaded is null || Document is null || text.Length == 0 || text.IndexOf('\n') >= 0)
+        {
+            return null;
+        }
+
+        RowRecord? counterpart;
+        IBrush brush;
+        if (Document.Kind == GridDocumentKind.Compare)
+        {
+            if (loaded.Descriptor.State != GridRowVisualState.Changed)
+            {
+                return null;
+            }
+
+            counterpart = pane == GridPane.Local ? loaded.RemoteRow : loaded.LocalRow;
+            brush = _palette.ChangedHighlight;
+        }
+        else
+        {
+            if (Document.GetCellVisualState(viewRow, column) != GridCellVisualState.Conflict)
+            {
+                return null;
+            }
+
+            counterpart = loaded.BaseRow;
+            brush = _palette.ConflictHighlight;
+        }
+
+        var counterpartCell = GridDocument.FindCell(counterpart, column);
+        var counterpartText = counterpartCell.HasValue
+            ? GridDocument.FormatValue(counterpartCell.Value.Value)
+            : string.Empty;
+        if (counterpartText == text)
+        {
+            return null;
+        }
+
+        var key = (counterpartText, text);
+        if (!_diffSpanCache.TryGetValue(key, out var spans))
+        {
+            spans = TextDiffer.GetChangedSpans(counterpartText, text);
+            if (_diffSpanCache.Count > 4_096)
+            {
+                _diffSpanCache.Clear();
+            }
+
+            _diffSpanCache[key] = spans;
+        }
+
+        return spans.Length == 0 ? null : (spans, brush);
+    }
+
+    private void DrawHighlightedText(
+        DrawingContext context,
+        string text,
+        TextSpan[] spans,
+        Point origin,
+        IBrush brush,
+        double fontSize,
+        IBrush highlight)
+    {
+        var x = origin.X;
+        var cursor = 0;
+        foreach (var span in spans)
+        {
+            if (span.Start > cursor)
+            {
+                var before = GetTextLayout(text[cursor..span.Start], fontSize, null, brush);
+                context.DrawText(before, new Point(x, origin.Y));
+                x += before.Width;
+            }
+
+            var changed = GetTextLayout(text.Substring(span.Start, span.Length), fontSize, null, brush);
+            context.DrawRectangle(
+                highlight,
+                null,
+                new Rect(x, origin.Y - 2, changed.Width, changed.Height + 3));
+            context.DrawText(changed, new Point(x, origin.Y));
+            x += changed.Width;
+            cursor = span.Start + span.Length;
+        }
+
+        if (cursor < text.Length)
+        {
+            context.DrawText(GetTextLayout(text[cursor..], fontSize, null, brush), new Point(x, origin.Y));
         }
     }
 
@@ -653,6 +795,19 @@ public sealed class VirtualDiffGrid : Control
                 _cache[rowIndex] = row;
                 Touch(rowIndex);
                 TrimCache();
+                if (GridDocument.GetSourceRowHeight(row) is { } sourceHeight)
+                {
+                    if (_rowHeights.TryAdd(rowIndex, sourceHeight))
+                    {
+                        UpdateVerticalScrollMetrics();
+                    }
+                }
+
+                if (ApplyContentAutoFit(row))
+                {
+                    UpdateHorizontalScrollMetrics();
+                }
+
                 InvalidateVisual();
             });
         }
@@ -663,6 +818,41 @@ public sealed class VirtualDiffGrid : Control
         catch
         {
             Dispatcher.UIThread.Post(() => _pending.Remove(rowIndex));
+        }
+    }
+
+    private bool ApplyContentAutoFit(GridLoadedRow row)
+    {
+        var changed = false;
+        Measure(row.LocalRow);
+        Measure(row.RemoteRow);
+        return changed;
+
+        void Measure(RowRecord? record)
+        {
+            if (!record.HasValue)
+            {
+                return;
+            }
+
+            foreach (var cell in record.Value.Cells.Span)
+            {
+                var column = cell.Address.ColumnIndex;
+                if (_columnWidths.ContainsKey(column))
+                {
+                    continue;
+                }
+
+                var text = GridDocument.FormatValue(cell.Value);
+                if (text.Length == 0)
+                {
+                    continue;
+                }
+
+                changed |= _autoFit.TryGrow(
+                    column,
+                    GetTextLayout(text, 11, null, _palette.Text).Width);
+            }
         }
     }
 
@@ -856,9 +1046,18 @@ public sealed class VirtualDiffGrid : Control
         _cache.Clear();
         _lru.Clear();
         _pending.Clear();
+        _diffSpanCache.Clear();
         _firstRow = 0;
         _firstColumn = 0;
         _selection = null;
+        if (Document?.SourceColumnWidths is { } sourceColumnWidths)
+        {
+            foreach (var (columnIndex, width) in sourceColumnWidths)
+            {
+                _columnWidths.TryAdd(columnIndex, width);
+            }
+        }
+
         UpdateHorizontalScrollMetrics(forceNotification: true);
         UpdateVerticalScrollMetrics(forceNotification: true);
         InvalidateVisual();
@@ -873,6 +1072,7 @@ public sealed class VirtualDiffGrid : Control
         {
             _columnWidths.Clear();
             _rowHeights.Clear();
+            _autoFit.Clear();
             return;
         }
 
@@ -1122,6 +1322,16 @@ public sealed class VirtualDiffGrid : Control
         FontWeight? weight = null,
         double maxWidth = double.PositiveInfinity)
     {
+        context.DrawText(GetTextLayout(text, fontSize, weight, brush, maxWidth), origin);
+    }
+
+    private FormattedText GetTextLayout(
+        string text,
+        double fontSize,
+        FontWeight? weight,
+        IBrush brush,
+        double maxWidth = double.PositiveInfinity)
+    {
         var key = new TextLayoutKey(
             text,
             fontSize,
@@ -1160,7 +1370,7 @@ public sealed class VirtualDiffGrid : Control
             _textLru.AddFirst(entry.Node);
         }
 
-        context.DrawText(entry.Text, origin);
+        return entry.Text;
     }
 
     private readonly record struct TextLayoutKey(

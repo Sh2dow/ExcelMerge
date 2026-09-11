@@ -1,6 +1,48 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="ExcelMerge.Desktop.App">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="AppWindowBrush" Color="#F3F4F1" />
+          <SolidColorBrush x:Key="PanelBrush" Color="#F8F9F6" />
+          <SolidColorBrush x:Key="PanelHeaderBrush" Color="#F8F9F7" />
+          <SolidColorBrush x:Key="CommandBarBrush" Color="#FAFAF8" />
+          <SolidColorBrush x:Key="ContentBrush" Color="White" />
+          <SolidColorBrush x:Key="ChromeBrush" Color="#E9ECEA" />
+          <SolidColorBrush x:Key="PanelBorderBrush" Color="#D3D7D9" />
+          <SolidColorBrush x:Key="ChromeBorderBrush" Color="#D5D9DD" />
+          <SolidColorBrush x:Key="MutedTextBrush" Color="#68717B" />
+          <SolidColorBrush x:Key="SubtleTextBrush" Color="#5C6570" />
+          <SolidColorBrush x:Key="FaintTextBrush" Color="#7A838C" />
+          <SolidColorBrush x:Key="LabelBrush" Color="#5B6470" />
+          <SolidColorBrush x:Key="LocalTextBrush" Color="#197044" />
+          <SolidColorBrush x:Key="RemoteTextBrush" Color="#A13055" />
+          <SolidColorBrush x:Key="ConflictTextBrush" Color="#8D2E46" />
+          <SolidColorBrush x:Key="ResolutionTextBrush" Color="#7A4A59" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="AppWindowBrush" Color="#1B1D1F" />
+          <SolidColorBrush x:Key="PanelBrush" Color="#24272B" />
+          <SolidColorBrush x:Key="PanelHeaderBrush" Color="#26292D" />
+          <SolidColorBrush x:Key="CommandBarBrush" Color="#222528" />
+          <SolidColorBrush x:Key="ContentBrush" Color="#1E2023" />
+          <SolidColorBrush x:Key="ChromeBrush" Color="#26292D" />
+          <SolidColorBrush x:Key="PanelBorderBrush" Color="#3A3F45" />
+          <SolidColorBrush x:Key="ChromeBorderBrush" Color="#3A3F45" />
+          <SolidColorBrush x:Key="MutedTextBrush" Color="#9AA3AD" />
+          <SolidColorBrush x:Key="SubtleTextBrush" Color="#9AA3AD" />
+          <SolidColorBrush x:Key="FaintTextBrush" Color="#7A838C" />
+          <SolidColorBrush x:Key="LabelBrush" Color="#9AA3AD" />
+          <SolidColorBrush x:Key="LocalTextBrush" Color="#5FBF8F" />
+          <SolidColorBrush x:Key="RemoteTextBrush" Color="#E0739A" />
+          <SolidColorBrush x:Key="ConflictTextBrush" Color="#E08CA0" />
+          <SolidColorBrush x:Key="ResolutionTextBrush" Color="#C98A9B" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
   <Application.Styles>
     <FluentTheme />
     <Style Selector="Button">
@@ -27,7 +69,7 @@
     <Style Selector="TextBlock.label">
       <Setter Property="FontSize" Value="11" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="#5B6470" />
+      <Setter Property="Foreground" Value="{DynamicResource LabelBrush}" />
     </Style>
   </Application.Styles>
 </Application>

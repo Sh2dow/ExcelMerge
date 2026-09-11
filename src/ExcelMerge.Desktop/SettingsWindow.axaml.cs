@@ -3,7 +3,6 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
-using Avalonia.Styling;
 using ExcelMerge.Application;
 
 namespace ExcelMerge.Desktop;
@@ -26,7 +25,13 @@ public sealed partial class SettingsWindow : Window
             "zh-CN" => 1,
             _ => 0,
         };
-        this.FindControl<ComboBox>("ThemeBox")!.SelectedIndex = 0;
+        this.FindControl<ComboBox>("ThemeBox")!.SelectedIndex =
+            (viewModel?.CurrentSettings.Theme ?? "System") switch
+            {
+                "Light" => 1,
+                "Dark" => 2,
+                _ => 0,
+            };
         this.FindControl<NumericUpDown>("RowHeightBox")!.Value = (decimal)GridSettings.RowHeight;
         this.FindControl<NumericUpDown>("ColumnWidthBox")!.Value = (decimal)GridSettings.ColumnWidth;
         this.FindControl<NumericUpDown>("CacheRowsBox")!.Value = GridSettings.CacheRows;
@@ -57,12 +62,11 @@ public sealed partial class SettingsWindow : Window
             return;
         }
 
-        Avalonia.Application.Current!.RequestedThemeVariant = theme switch
+        App.ApplyTheme(theme);
+        if (_viewModel is not null && _viewModel.CurrentSettings.Theme != theme)
         {
-            "Light" => ThemeVariant.Light,
-            "Dark" => ThemeVariant.Dark,
-            _ => ThemeVariant.Default,
-        };
+            _ = _viewModel.SaveSettingsAsync(_viewModel.CurrentSettings with { Theme = theme });
+        }
     }
 
     private void GridValueChanged(object? sender, NumericUpDownValueChangedEventArgs e)

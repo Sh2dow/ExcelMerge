@@ -139,6 +139,13 @@ public sealed class GridDocument
             localWorksheet?.Metadata.LastColumnIndex ?? 0,
             remoteWorksheet?.Metadata.LastColumnIndex ?? 0,
         }.Max();
+        SourceColumnWidths = BuildSourceColumnWidths(baseWorksheet, localWorksheet, remoteWorksheet);
+        var defaultWidth = localWorksheet?.Metadata.DefaultColumnWidth ??
+            remoteWorksheet?.Metadata.DefaultColumnWidth ??
+            baseWorksheet?.Metadata.DefaultColumnWidth;
+        SourceDefaultColumnWidth = defaultWidth is { } width
+            ? Math.Clamp(width * 7 + 5, 32, 320)
+            : null;
     }
 
     public GridDocumentKind Kind { get; }
@@ -156,6 +163,12 @@ public sealed class GridDocument
     public IReadOnlyList<GridCellMarker> CellMarkers { get; }
 
     public IReadOnlyList<GridRowMarker> RowMarkers { get; }
+
+    /// <summary>Pixel column widths declared by the source worksheets, keyed by view column index.</summary>
+    public IReadOnlyDictionary<int, double>? SourceColumnWidths { get; }
+
+    /// <summary>The source worksheets' default column width in pixels, when declared.</summary>
+    public double? SourceDefaultColumnWidth { get; }
 
     public static GridDocument FromCompare(CompareSheetResult sheet, bool hideUnchanged = false)
     {
@@ -464,6 +477,47 @@ public sealed class GridDocument
         }
 
         return $"{column[cursor..]}{rowIndex + 1}";
+    }
+
+    /// <summary>
+    /// Pixel row height declared by the source worksheets for a loaded row, preferring local, then
+    /// remote, then base. Null when no source row declares a custom height.
+    /// </summary>
+    public static double? GetSourceRowHeight(GridLoadedRow row)
+    {
+        var points = row.LocalRow?.Height ?? row.RemoteRow?.Height ?? row.BaseRow?.Height;
+        return points is { } height
+            ? Math.Clamp(height * 96 / 72, 18, 400)
+            : null;
+    }
+
+    private static IReadOnlyDictionary<int, double>? BuildSourceColumnWidths(
+        IWorksheetSnapshot? baseWorksheet,
+        IWorksheetSnapshot? localWorksheet,
+        IWorksheetSnapshot? remoteWorksheet)
+    {
+        Dictionary<int, double>? widths = null;
+        Overlay(baseWorksheet);
+        Overlay(remoteWorksheet);
+        Overlay(localWorksheet);
+        return widths;
+
+        void Overlay(IWorksheetSnapshot? worksheet)
+        {
+            var source = worksheet?.Metadata.ColumnWidths;
+            if (source is null)
+            {
+                return;
+            }
+
+            for (var columnIndex = 0; columnIndex < source.Count; columnIndex++)
+            {
+                if (source[columnIndex] is { } width)
+                {
+                    (widths ??= [])[columnIndex] = Math.Clamp(width * 7 + 5, 64, 320);
+                }
+            }
+        }
     }
 
     private static async ValueTask<RowRecord?> ReadOptionalAsync(

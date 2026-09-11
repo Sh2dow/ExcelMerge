@@ -269,4 +269,143 @@ public sealed class DesktopTests
         grid.ScrollHorizontalTo(double.MaxValue);
         Assert.AreEqual(28, grid.FirstVisibleColumn);
     }
+
+    [TestMethod]
+    public async Task Grid_document_surfaces_source_column_widths_and_row_heights()
+    {
+        var metadata = new SheetMetadata(
+            "rId1",
+            "Sheet1",
+            0,
+            ColumnWidths: [null, 20],
+            DefaultColumnWidth: 10);
+        var baseSheet = TestData.Sheet(TestData.Row(0, (0, TestData.Text("a"))));
+        var localSheet = TestData.Sheet(
+            metadata,
+            new RowRecord(
+                0,
+                new[] { new CellRecord(new CellAddress(0, 0), TestData.Text("a")) },
+                height: 90));
+        var remoteSheet = TestData.Sheet(TestData.Row(0, (0, TestData.Text("a"))));
+        var merge = await new ThreeWayMergeEngine().MergeAsync(
+            baseSheet,
+            localSheet,
+            remoteSheet,
+            new ThreeWayMergeOptions { SheetGroupId = "sheet" });
+        var result = new MergeSheetResult("sheet", baseSheet, localSheet, remoteSheet, merge);
+
+        var document = GridDocument.FromMerge(result, new Dictionary<long, ResolutionKind>());
+
+        Assert.IsNotNull(document.SourceColumnWidths);
+        Assert.AreEqual(145d, document.SourceColumnWidths[1]);
+        Assert.IsFalse(document.SourceColumnWidths.ContainsKey(0));
+        Assert.AreEqual(75d, document.SourceDefaultColumnWidth);
+
+        var grid = new VirtualDiffGrid { Document = document };
+        Assert.AreEqual(145d, grid.GetColumnWidth(1));
+        Assert.AreEqual(75d, grid.GetColumnWidth(0));
+
+        var row = await document.LoadRowAsync(0);
+        Assert.AreEqual(120d, GridDocument.GetSourceRowHeight(row));
+
+        var plainDocument = GridDocument.FromMerge(
+            new MergeSheetResult("sheet", baseSheet, baseSheet, remoteSheet, merge),
+            new Dictionary<long, ResolutionKind>());
+        Assert.IsNull(plainDocument.SourceColumnWidths);
+        Assert.IsNull(GridDocument.GetSourceRowHeight(await plainDocument.LoadRowAsync(0)));
+
+        var plainGrid = new VirtualDiffGrid { Document = plainDocument };
+        Assert.AreEqual(GridSettings.ColumnWidth, plainGrid.GetColumnWidth(0));
+    }
+
+    [TestMethod]
+    public void Content_width_fitter_grows_and_clamps_without_shrinking()
+    {
+        var fitter = new ContentWidthFitter();
+        Assert.IsNull(fitter.GetWidth(0));
+
+        Assert.IsTrue(fitter.TryGrow(0, 200));
+        Assert.AreEqual(200 + ContentWidthFitter.CellPadding, fitter.GetWidth(0));
+
+        Assert.IsFalse(fitter.TryGrow(0, 100));
+        Assert.AreEqual(200 + ContentWidthFitter.CellPadding, fitter.GetWidth(0));
+
+        Assert.IsFalse(fitter.TryGrow(0, double.NaN));
+        Assert.IsTrue(fitter.TryGrow(1, 1));
+        Assert.AreEqual(ContentWidthFitter.MinimumWidth, fitter.GetWidth(1));
+
+        Assert.IsTrue(fitter.TryGrow(2, 10_000));
+        Assert.AreEqual(ContentWidthFitter.MaximumWidth, fitter.GetWidth(2));
+
+        fitter.Clear();
+        Assert.IsNull(fitter.GetWidth(0));
+    }
+
+    [TestMethod]
+    public void Text_differ_reports_only_changed_spans()
+    {
+        Assert.AreEqual(0, TextDiffer.GetChangedSpans("same", "same").Length);
+        Assert.AreEqual(0, TextDiffer.GetChangedSpans(null, "").Length);
+        Assert.AreEqual(0, TextDiffer.GetChangedSpans("anything", "").Length);
+
+        CollectionAssert.AreEqual(
+            new[] { new TextSpan(0, 5) },
+            TextDiffer.GetChangedSpans("", "whole"));
+        CollectionAssert.AreEqual(
+            new[] { new TextSpan(0, 5) },
+            TextDiffer.GetChangedSpans("xxxxx", "whole"));
+
+        CollectionAssert.AreEqual(
+            new[] { new TextSpan(6, 6) },
+            TextDiffer.GetChangedSpans("hello world", "hello brave world"));
+        CollectionAssert.AreEqual(
+            new[] { new TextSpan(3, 3) },
+            TextDiffer.GetChangedSpans("abc123xyz", "abc456xyz"));
+        CollectionAssert.AreEqual(
+            new[] { new TextSpan(3, 3) },
+            TextDiffer.GetChangedSpans("abc456", "abcdef"));
+
+        var spans = TextDiffer.GetChangedSpans("a1b2c3", "a1x2y3");
+        Assert.AreEqual(2, spans.Length);
+        Assert.AreEqual(new TextSpan(2, 1), spans[0]);
+        Assert.AreEqual(new TextSpan(4, 1), spans[1]);
+    }
+
+    [TestMethod]
+    public void Text_differ_falls_back_for_oversized_inputs()
+    {
+        var oldLong = new string('a', TextDiffer.MaxInputLength + 1);
+        CollectionAssert.AreEqual(
+            new[] { new TextSpan(0, 5) },
+            TextDiffer.GetChangedSpans(oldLong, "short"));
+
+        var prefix = new string('p', TextDiffer.MaxMiddleLength);
+        var suffix = new string('s', TextDiffer.MaxMiddleLength);
+        var oldMiddle = new string('o', TextDiffer.MaxMiddleLength + 1);
+        var spans = TextDiffer.GetChangedSpans(prefix + oldMiddle + suffix, prefix + "new" + suffix);
+        CollectionAssert.AreEqual(
+            new[] { new TextSpan(TextDiffer.MaxMiddleLength, 3) },
+            spans);
+
+        var aligned = new string('z', TextDiffer.MaxMiddleLength);
+        Assert.AreEqual(
+            1,
+            TextDiffer.GetChangedSpans(aligned + "1", aligned + "2").Length);
+    }
+
+    [TestMethod]
+    public void Grid_palette_follows_the_effective_theme_variant()
+    {
+        Assert.AreSame(GridPalette.Light, GridPalette.ForVariant(Avalonia.Styling.ThemeVariant.Light));
+        Assert.AreSame(GridPalette.Light, GridPalette.ForVariant(Avalonia.Styling.ThemeVariant.Default));
+        Assert.AreSame(GridPalette.Light, GridPalette.ForVariant(null));
+        Assert.AreSame(GridPalette.Dark, GridPalette.ForVariant(Avalonia.Styling.ThemeVariant.Dark));
+
+        var lightText = (Avalonia.Media.SolidColorBrush)GridPalette.Light.Text;
+        var darkText = (Avalonia.Media.SolidColorBrush)GridPalette.Dark.Text;
+        Assert.AreEqual(Avalonia.Media.Color.Parse("#202428"), lightText.Color);
+        Assert.AreNotEqual(lightText.Color, darkText.Color);
+        var lightBackground = (Avalonia.Media.SolidColorBrush)GridPalette.Light.Background;
+        Assert.AreEqual(Avalonia.Media.Colors.White, lightBackground.Color);
+    }
 }

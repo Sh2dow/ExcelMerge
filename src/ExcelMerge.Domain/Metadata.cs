@@ -30,6 +30,13 @@ public sealed record WorkbookMetadata(
 /// <param name="LastRowIndex">The zero-based last used row, when known.</param>
 /// <param name="FirstColumnIndex">The zero-based first used column, when known.</param>
 /// <param name="LastColumnIndex">The zero-based last used column, when known.</param>
+/// <param name="ColumnWidths">
+/// Custom column widths in Excel width units by zero-based column index; null entries use the
+/// default width. Null when the format does not declare custom widths.
+/// </param>
+/// <param name="DefaultColumnWidth">
+/// The sheet's default column width in Excel width units, when declared.
+/// </param>
 public sealed record SheetMetadata(
     string Id,
     string Name,
@@ -39,4 +46,6 @@ public sealed record SheetMetadata(
     int? LastRowIndex = null,
     int? FirstColumnIndex = null,
     int? LastColumnIndex = null,
-    long? NonEmptyCellCount = null);
+    long? NonEmptyCellCount = null,
+    IReadOnlyList<double?>? ColumnWidths = null,
+    double? DefaultColumnWidth = null);

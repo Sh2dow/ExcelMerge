@@ -31,6 +31,8 @@ public sealed class DelimitedTests
         Assert.AreEqual(0, metadata.Sheets[0].FirstColumnIndex);
         Assert.AreEqual(4, metadata.Sheets[0].LastColumnIndex);
         Assert.AreEqual(5L, metadata.Sheets[0].NonEmptyCellCount);
+        Assert.IsNull(metadata.Sheets[0].ColumnWidths);
+        Assert.IsNull(metadata.Sheets[0].DefaultColumnWidth);
 
         await using var workspace = new Workspace(new WorkspaceOptions
         {
